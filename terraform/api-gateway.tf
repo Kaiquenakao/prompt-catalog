@@ -73,18 +73,110 @@ resource "aws_lambda_permission" "get_models" {
   source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
 }
 
+# ── POST /run ─────────────────────────────────────────────
+resource "aws_api_gateway_resource" "run" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  parent_id   = aws_api_gateway_rest_api.this.root_resource_id
+  path_part   = "run"
+}
+
+resource "aws_api_gateway_method" "post_run" {
+  rest_api_id      = aws_api_gateway_rest_api.this.id
+  resource_id      = aws_api_gateway_resource.run.id
+  http_method      = "POST"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "post_run" {
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  resource_id             = aws_api_gateway_resource.run.id
+  http_method             = aws_api_gateway_method.post_run.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = module.run-prompt.invoke_arn
+}
+
+resource "aws_lambda_permission" "post_run" {
+  statement_id  = "AllowAPIGatewayPostRun"
+  action        = "lambda:InvokeFunction"
+  function_name = module.run-prompt.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
+}
+
+# ── GET /executions?session_id=xxx ────────────────────────
+resource "aws_api_gateway_resource" "executions" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  parent_id   = aws_api_gateway_rest_api.this.root_resource_id
+  path_part   = "executions"
+}
+
+resource "aws_api_gateway_method" "get_executions" {
+  rest_api_id      = aws_api_gateway_rest_api.this.id
+  resource_id      = aws_api_gateway_resource.executions.id
+  http_method      = "GET"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "get_executions" {
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  resource_id             = aws_api_gateway_resource.executions.id
+  http_method             = aws_api_gateway_method.get_executions.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = module.get-execution.invoke_arn
+}
+
+# ── GET /executions/{execution_id} — polling ──────────────
+resource "aws_api_gateway_resource" "execution_id" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  parent_id   = aws_api_gateway_resource.executions.id
+  path_part   = "{execution_id}"
+}
+
+resource "aws_api_gateway_method" "get_execution_id" {
+  rest_api_id      = aws_api_gateway_rest_api.this.id
+  resource_id      = aws_api_gateway_resource.execution_id.id
+  http_method      = "GET"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "get_execution_id" {
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  resource_id             = aws_api_gateway_resource.execution_id.id
+  http_method             = aws_api_gateway_method.get_execution_id.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = module.get-execution.invoke_arn
+}
+
+resource "aws_lambda_permission" "get_executions" {
+  statement_id  = "AllowAPIGatewayGetExecutions"
+  action        = "lambda:InvokeFunction"
+  function_name = module.get-execution.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
+}
+
 # ──────────────────────────────────────────────────────────
 # DEPLOYMENT + STAGE
 # ──────────────────────────────────────────────────────────
 resource "aws_api_gateway_deployment" "this" {
   rest_api_id = aws_api_gateway_rest_api.this.id
 
-  # força novo deployment quando rotas mudam
   triggers = {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.models.id,
       aws_api_gateway_method.get_models.id,
       aws_api_gateway_integration.get_models.id,
+      aws_api_gateway_resource.run.id,
+      aws_api_gateway_method.post_run.id,
+      aws_api_gateway_integration.post_run.id,
+      aws_api_gateway_resource.executions.id,
+      aws_api_gateway_resource.execution_id.id,
     ]))
   }
 

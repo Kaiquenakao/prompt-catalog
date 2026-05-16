@@ -22,7 +22,30 @@ resource "aws_iam_policy" "bedrock_invoke" {
       {
         Effect   = "Allow"
         Action   = ["bedrock:InvokeModel"]
-        Resource = "arn:aws:bedrock:us-east-1::foundation-model/*"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_policy" "dynamodb_history" {
+  name = "${local.project}-dynamodb-history"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:UpdateItem",
+        ]
+        Resource = [
+          aws_dynamodb_table.history.arn,
+          "${aws_dynamodb_table.history.arn}/index/*",
+        ]
       }
     ]
   })

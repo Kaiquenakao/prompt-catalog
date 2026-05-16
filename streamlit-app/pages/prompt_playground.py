@@ -1,5 +1,6 @@
 import re
 import time
+import uuid
 
 import httpx
 import streamlit as st
@@ -73,6 +74,63 @@ st.markdown(
 )
 
 
+# ── API client ────────────────────────────────────────────
+def _headers() -> dict:
+    return {
+        "x-api-key": st.secrets["API_KEY"],
+        "Content-Type": "application/json",
+    }
+
+
+def _base() -> str:
+    return st.secrets["API_GATEWAY_URL"]
+
+
+def fetch_models() -> dict:
+    try:
+        resp = httpx.get(f"{_base()}/models", headers=_headers(), timeout=10.0)
+        resp.raise_for_status()
+        return {m["name"]: m["id"] for m in resp.json().get("models", [])}
+    except Exception:
+        return {
+            "Claude Haiku 4.5": "anthropic.claude-haiku-4-5-20251001-v1:0",
+            "Claude Sonnet 4.5": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "Claude Sonnet 4.6": "anthropic.claude-sonnet-4-6",
+        }
+
+
+def run_prompt(payload: dict) -> dict:
+    resp = httpx.post(
+        f"{_base()}/run",
+        headers=_headers(),
+        json=payload,
+        timeout=310.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_execution(execution_id: str) -> dict:
+    resp = httpx.get(
+        f"{_base()}/executions/{execution_id}",
+        headers=_headers(),
+        timeout=10.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_history(session_id: str) -> list:
+    resp = httpx.get(
+        f"{_base()}/executions",
+        headers=_headers(),
+        params={"session_id": session_id},
+        timeout=10.0,
+    )
+    resp.raise_for_status()
+    return resp.json().get("executions", [])
+
+
 # ── helpers ───────────────────────────────────────────────
 def temp_bar_html(value: float) -> str:
     pct = value * 100
@@ -109,27 +167,74 @@ def extract_variables(prompt: str) -> list:
     return list(dict.fromkeys(re.findall(r"\{\{(\w+)\}\}", prompt)))
 
 
-def fetch_models() -> dict:
-    """Retorna {name: id} dos modelos disponíveis via API."""
-    try:
-        resp = httpx.get(
-            f"{st.secrets['API_GATEWAY_URL']}/models",
-            headers={"x-api-key": st.secrets["API_KEY"]},
-            timeout=10.0,
+def execute_run(
+    final_prompt: str,
+    prompt_name: str,
+    model_id: str,
+    model_name: str,
+    temperature: float,
+    max_tokens: int,
+):
+    """Chama POST /run e faz polling até status=done."""
+    payload = {
+        "prompt_name": prompt_name,
+        "system_prompt": final_prompt,
+        "model_id": model_id,
+        "temperature": temperature,
+        "max_tokens": int(max_tokens),
+        "session_id": st.session_state.session_id,
+    }
+
+    with st.spinner("Enviando para o modelo..."):
+        result = run_prompt(payload)
+
+    # se já veio done na resposta direta (< 29s), usa direto
+    if result.get("status") == "done":
+        st.session_state.output = result.get("output", "")
+        st.session_state.output_meta = (
+            f"{model_name}  ·  temp {temperature:.2f}  ·  "
+            f"{result.get('input_tokens', 0)} in / {result.get('output_tokens', 0)} out  ·  "
+            f"{result.get('latency_ms', 0)}ms"
         )
-        resp.raise_for_status()
-        models = resp.json().get("models", [])
-        return {m["name"]: m["id"] for m in models}
-    except Exception:
-        # fallback enquanto API não está disponível
-        return {
-            "Claude Haiku 4.5": "anthropic.claude-haiku-4-5-20251001-v1:0",
-            "Claude Sonnet 4.5": "anthropic.claude-sonnet-4-5-20250929-v1:0",
-            "Claude Sonnet 4.6": "anthropic.claude-sonnet-4-6",
-        }
+        st.rerun()
+        return
+
+    # polling para chamadas longas
+    execution_id = result.get("execution_id")
+    if not execution_id:
+        st.error("Erro: execution_id não retornado.")
+        return
+
+    progress = st.progress(0, text="Aguardando resposta do modelo...")
+    for i in range(60):  # até 120s (60 x 2s)
+        time.sleep(2)
+        progress.progress(min(i * 2, 95), text=f"Processando... {(i + 1) * 2}s")
+        try:
+            data = get_execution(execution_id)
+            if data.get("status") == "done":
+                progress.empty()
+                st.session_state.output = data.get("output", "")
+                st.session_state.output_meta = (
+                    f"{model_name}  ·  temp {temperature:.2f}  ·  "
+                    f"{data.get('input_tokens', 0)} in / {data.get('output_tokens', 0)} out  ·  "
+                    f"{data.get('latency_ms', 0)}ms"
+                )
+                st.rerun()
+                return
+            if data.get("status") == "error":
+                progress.empty()
+                st.error(f"Erro na execução: {data.get('output', 'desconhecido')}")
+                return
+        except Exception:
+            pass
+
+    progress.empty()
+    st.error("Timeout: a execução excedeu 120s.")
 
 
 # ── session state ──────────────────────────────────────────
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
 if "tags" not in st.session_state:
     st.session_state.tags = []
 if "output" not in st.session_state:
@@ -141,6 +246,7 @@ if "model_options" not in st.session_state:
         st.session_state.model_options = fetch_models()
 
 
+# ── MODAL: campos obrigatórios ────────────────────────────
 @st.dialog("Campos obrigatórios não preenchidos")
 def validation_modal(missing: list):
     st.markdown(
@@ -153,8 +259,7 @@ def validation_modal(missing: list):
             f"""<div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3);
             border-radius:8px; padding:10px 14px; margin-bottom:8px;
             font-family:'Space Grotesk',sans-serif; font-size:13px; color:#fca5a5;">
-            {field}
-            </div>""",
+            {field}</div>""",
             unsafe_allow_html=True,
         )
     st.markdown("<div style='height:8px'/>", unsafe_allow_html=True)
@@ -162,7 +267,7 @@ def validation_modal(missing: list):
         st.rerun()
 
 
-# ── MODAL DE VARIÁVEIS ────────────────────────────────────
+# ── MODAL: variáveis ──────────────────────────────────────
 @st.dialog("Variáveis do prompt")
 def variables_modal(
     variables, system_prompt, model_id, model_name, temperature, max_tokens
@@ -174,10 +279,11 @@ def variables_modal(
     )
     filled = {}
     for var in variables:
-        filled[var] = st.text_input(
+        filled[var] = st.text_area(
             var.replace("_", " ").capitalize(),
             placeholder=f"ex: valor real para {var}",
             key=f"modal_{var}",
+            height=80,
             help=(
                 f"Este valor substituirá {{{{{var}}}}} no prompt antes de enviar ao modelo.\n"
                 "Em produção, este campo virá preenchido automaticamente pela requisição da API."
@@ -199,18 +305,154 @@ def variables_modal(
             final_prompt = system_prompt
             for var, val in filled.items():
                 final_prompt = final_prompt.replace(f"{{{{{var}}}}}", val)
-
-            with st.spinner("Executando..."):
-                # TODO: api_client.render_prompt(prompt_name, final_prompt, model_id, temperature, max_tokens)
-                time.sleep(1.5)
-
-            st.session_state.output = (
-                "Resultado aparecerá aqui após integração com a Lambda render-prompt."
+            execute_run(
+                final_prompt,
+                system_prompt,
+                model_id,
+                model_name,
+                temperature,
+                max_tokens,
             )
-            st.session_state.output_meta = (
-                f"{model_name}  ·  temp {temperature:.2f}  ·  {max_tokens} tokens"
+
+
+# ── MODAL: histórico ──────────────────────────────────────
+@st.dialog("Histórico da sessão", width="large")
+def history_modal():
+    st.markdown(
+        """<p style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#94a3b8; margin:0 0 16px;">
+        Execuções desta sessão — visíveis apenas para você.</p>""",
+        unsafe_allow_html=True,
+    )
+    try:
+        executions = get_history(st.session_state.session_id)
+    except Exception as e:
+        st.error(f"Erro ao carregar histórico: {e}")
+        return
+
+    if not executions:
+        st.info("Nenhuma execução nesta sessão ainda.")
+        return
+
+    def to_brasilia(utc_str: str) -> str:
+        try:
+            from datetime import datetime, timezone, timedelta
+
+            dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
+            brt = dt.astimezone(timezone(timedelta(hours=-3)))
+            return brt.strftime("%d/%m/%Y %H:%M:%S")
+        except Exception:
+            return utc_str[:19].replace("T", " ")
+
+    total = len(executions)
+
+    for idx, ex in enumerate(executions):
+        num = total - idx  # mais recente = número maior
+        status = ex.get("status", "-")
+        model_short = ex.get("model_id", "-").split(".")[-1][:22]
+        date_str = to_brasilia(ex.get("created_at", ""))
+        in_tok = ex.get("input_tokens", 0)
+        out_tok = ex.get("output_tokens", 0)
+        latency = ex.get("latency_ms", 0)
+        pname = ex.get("prompt_name") or ex.get("system_prompt", "")[:40]
+
+        status_badge = (
+            f'<span style="background:rgba(34,197,94,0.15); color:#22c55e; '
+            f"border:1px solid rgba(34,197,94,0.4); border-radius:4px; "
+            f"padding:2px 8px; font-size:10px; font-family:'JetBrains Mono',monospace;\">done</span>"
+            if status == "done"
+            else f'<span style="background:rgba(239,68,68,0.15); color:#ef4444; '
+            f"border:1px solid rgba(239,68,68,0.4); border-radius:4px; "
+            f"padding:2px 8px; font-size:10px; font-family:'JetBrains Mono',monospace;\">{status}</span>"
+        )
+
+        st.markdown(
+            f"""
+        <div style="display:grid; grid-template-columns:28px 2fr 2fr 1.5fr 1fr 1fr;
+            align-items:center; gap:8px; padding:6px 0 2px;
+            font-family:'Space Grotesk',sans-serif; font-size:12px; color:#94a3b8;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px;
+                color:#4b5563; text-align:right;">#{num}</span>
+            <span style="color:#e2e8f0; font-weight:500; white-space:nowrap;
+                overflow:hidden; text-overflow:ellipsis;" title="{pname}">{pname}</span>
+            <span style="color:#a78bfa; font-family:'JetBrains Mono',monospace;
+                font-size:11px;">{model_short}</span>
+            <span>{date_str}</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px;">
+                {in_tok}↑ {out_tok}↓</span>
+            {status_badge}
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
+
+        with st.expander("ver detalhes", expanded=False):
+            st.markdown(
+                f"""
+            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:14px;">
+                <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+                    border-radius:8px; padding:8px 14px; min-width:90px;">
+                    <div style="font-size:9px; color:#475569; text-transform:uppercase;
+                        letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif;">Status</div>
+                    <div style="margin-top:4px;">{status_badge}</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+                    border-radius:8px; padding:8px 14px; min-width:90px;">
+                    <div style="font-size:9px; color:#475569; text-transform:uppercase;
+                        letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif;">Modelo</div>
+                    <div style="font-size:11px; color:#a78bfa; font-family:'JetBrains Mono',monospace;
+                        margin-top:4px;">{model_short}</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+                    border-radius:8px; padding:8px 14px; min-width:90px;">
+                    <div style="font-size:9px; color:#475569; text-transform:uppercase;
+                        letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif;">Tokens</div>
+                    <div style="font-size:11px; color:#e2e8f0; font-family:'JetBrains Mono',monospace;
+                        margin-top:4px;">{in_tok}↑ &nbsp;{out_tok}↓</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+                    border-radius:8px; padding:8px 14px; min-width:90px;">
+                    <div style="font-size:9px; color:#475569; text-transform:uppercase;
+                        letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif;">Latência</div>
+                    <div style="font-size:11px; color:#e2e8f0; font-family:'JetBrains Mono',monospace;
+                        margin-top:4px;">{latency}ms</div>
+                </div>
+                <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+                    border-radius:8px; padding:8px 14px; min-width:120px;">
+                    <div style="font-size:9px; color:#475569; text-transform:uppercase;
+                        letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif;">Horário (BRT)</div>
+                    <div style="font-size:11px; color:#e2e8f0; font-family:'JetBrains Mono',monospace;
+                        margin-top:4px;">{date_str}</div>
+                </div>
+            </div>
+            """,
+                unsafe_allow_html=True,
             )
-            st.rerun()
+
+            st.markdown(
+                """<p style="font-size:10px; color:#475569; text-transform:uppercase;
+                letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 6px;">
+                System prompt</p>""",
+                unsafe_allow_html=True,
+            )
+            st.code(ex.get("system_prompt", ""), language=None)
+
+            if ex.get("output"):
+                st.markdown(
+                    """<p style="font-size:10px; color:#475569; text-transform:uppercase;
+                    letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:8px 0 6px;">
+                    Output</p>""",
+                    unsafe_allow_html=True,
+                )
+                clean = "\n\n".join(
+                    p.strip() for p in ex.get("output", "").split("\n\n") if p.strip()
+                )
+                with st.container(border=True):
+                    st.markdown(clean)
+
+        st.markdown(
+            "<div style='border-bottom:1px solid rgba(255,255,255,0.06); margin:4px 0 8px;'/>",
+            unsafe_allow_html=True,
+        )
 
 
 # ── SIDEBAR ───────────────────────────────────────────────
@@ -221,19 +463,22 @@ with st.sidebar:
         Parâmetros</p>""",
         unsafe_allow_html=True,
     )
-
     model_names = list(st.session_state.model_options.keys())
-
     st.divider()
     st.markdown(
-        """<div style="background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.2);
+        f"""<div style="background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.2);
         border-radius:10px; padding:12px 14px;">
         <p style="font-family:'Space Grotesk',sans-serif; font-size:11px; color:#7c3aed;
             letter-spacing:0.12em; text-transform:uppercase; margin:0 0 10px; font-weight:600;">
             Sessão</p>
-        <div style="display:flex; justify-content:space-between;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
             <span style="font-size:12px; color:#94a3b8;">Status</span>
             <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#22c55e;">draft</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:#94a3b8;">Session ID</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#475569;">
+            {st.session_state.session_id[:8]}...</span>
         </div></div>""",
         unsafe_allow_html=True,
     )
@@ -419,6 +664,7 @@ with col_right:
         ),
     )
 
+    st.markdown("<div style='height:8px'/>", unsafe_allow_html=True)
     btn1, btn2 = st.columns([1, 1], gap="small")
     with btn1:
         run_clicked = st.button("Run", type="primary", use_container_width=True)
@@ -437,16 +683,22 @@ with col_right:
     )
 
     if st.session_state.output:
+        clean_output = "\n\n".join(
+            p.strip() for p in st.session_state.output.split("\n\n") if p.strip()
+        )
         st.markdown(
-            f"""<div style="background:rgba(34,197,94,0.05); border:1px solid rgba(34,197,94,0.2);
-            border-radius:12px; padding:20px 22px; font-family:'JetBrains Mono',monospace;
-            font-size:13px; color:#e2e8f0; line-height:1.8;">
-            <span style="font-size:10px; color:#22c55e; letter-spacing:0.1em;
-                text-transform:uppercase; font-family:'Space Grotesk',sans-serif;">
-                200 OK  ·  {st.session_state.output_meta}
-            </span><br><br>{st.session_state.output}</div>""",
+            f"""<div style="font-size:10px; color:#22c55e; letter-spacing:0.1em;
+            text-transform:uppercase; font-family:'Space Grotesk',sans-serif;
+            margin-bottom:6px;">200 OK &nbsp;·&nbsp; {st.session_state.output_meta}</div>
+            <style>
+            div[data-testid="stVerticalBlockBorderWrapper"] > div {{
+                background: rgba(10, 22, 10, 0.85) !important;
+            }}
+            </style>""",
             unsafe_allow_html=True,
         )
+        with st.container(border=True):
+            st.markdown(clean_output)
     else:
         st.markdown(
             """<div style="border:1px dashed rgba(255,255,255,0.08); border-radius:12px;
@@ -459,11 +711,11 @@ with col_right:
     st.markdown("<div style='height:10px'/>", unsafe_allow_html=True)
     st.button("Deploy", type="secondary", use_container_width=True, disabled=True)
 
-    if history_clicked:
-        st.info("Modal de historico — em breve")
-
-# ── LÓGICA DE RUN ─────────────────────────────────────────
+# ── LÓGICA ────────────────────────────────────────────────
 variables = extract_variables(system_prompt)
+
+if history_clicked:
+    history_modal()
 
 if run_clicked:
     missing = []
@@ -481,13 +733,6 @@ if run_clicked:
             variables, system_prompt, model_id, model_name, temperature, max_tokens
         )
     else:
-        with st.spinner("Executando..."):
-            # TODO: api_client.render_prompt(prompt_name, system_prompt, model_id, temperature, max_tokens)
-            time.sleep(1.5)
-        st.session_state.output = (
-            "Resultado aparecerá aqui após integração com a Lambda render-prompt."
+        execute_run(
+            system_prompt, prompt_name, model_id, model_name, temperature, max_tokens
         )
-        st.session_state.output_meta = (
-            f"{model_name}  ·  temp {temperature:.2f}  ·  {max_tokens} tokens"
-        )
-        st.rerun()
