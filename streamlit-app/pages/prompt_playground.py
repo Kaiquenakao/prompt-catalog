@@ -1,6 +1,8 @@
-import streamlit as st
 import re
 import time
+
+import httpx
+import streamlit as st
 
 st.set_page_config(layout="wide", page_title="Prompt Playground")
 
@@ -53,7 +55,6 @@ st.markdown(
         border-radius: 10px !important;
         border: 1px solid rgba(255,255,255,0.12) !important;
     }
-    /* tooltip menor com quebras de linha */
     div[data-testid="stTooltipContent"] > div,
     div[role="tooltip"],
     [data-baseweb="tooltip"] [data-testid="stMarkdownContainer"] p,
@@ -72,6 +73,7 @@ st.markdown(
 )
 
 
+# ── helpers ───────────────────────────────────────────────
 def temp_bar_html(value: float) -> str:
     pct = value * 100
     if value < 0.33:
@@ -107,6 +109,26 @@ def extract_variables(prompt: str) -> list:
     return list(dict.fromkeys(re.findall(r"\{\{(\w+)\}\}", prompt)))
 
 
+def fetch_models() -> dict:
+    """Retorna {name: id} dos modelos disponíveis via API."""
+    try:
+        resp = httpx.get(
+            f"{st.secrets['API_GATEWAY_URL']}/models",
+            headers={"x-api-key": st.secrets["API_KEY"]},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        models = resp.json().get("models", [])
+        return {m["name"]: m["id"] for m in models}
+    except Exception:
+        # fallback enquanto API não está disponível
+        return {
+            "Claude Haiku 4.5": "anthropic.claude-haiku-4-5-20251001-v1:0",
+            "Claude Sonnet 4.5": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "Claude Sonnet 4.6": "anthropic.claude-sonnet-4-6",
+        }
+
+
 # ── session state ──────────────────────────────────────────
 if "tags" not in st.session_state:
     st.session_state.tags = []
@@ -114,11 +136,16 @@ if "output" not in st.session_state:
     st.session_state.output = None
 if "output_meta" not in st.session_state:
     st.session_state.output_meta = None
+if "model_options" not in st.session_state:
+    with st.spinner("Carregando modelos..."):
+        st.session_state.model_options = fetch_models()
 
 
 # ── MODAL DE VARIÁVEIS ────────────────────────────────────
 @st.dialog("Variáveis do prompt")
-def variables_modal(variables, system_prompt, model, temperature, max_tokens):
+def variables_modal(
+    variables, system_prompt, model_id, model_name, temperature, max_tokens
+):
     st.markdown(
         """<p style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#94a3b8; margin:0 0 20px;">
         Preencha os valores que serão substituídos no prompt antes da execução.</p>""",
@@ -131,7 +158,7 @@ def variables_modal(variables, system_prompt, model, temperature, max_tokens):
             placeholder=f"ex: valor real para {var}",
             key=f"modal_{var}",
             help=(
-                f"Este valor substituirá {{{{{var}}}}} no prompt antes de enviar ao modelo. "
+                f"Este valor substituirá {{{{{var}}}}} no prompt antes de enviar ao modelo.\n"
                 "Em produção, este campo virá preenchido automaticamente pela requisição da API."
             ),
         )
@@ -153,14 +180,14 @@ def variables_modal(variables, system_prompt, model, temperature, max_tokens):
                 final_prompt = final_prompt.replace(f"{{{{{var}}}}}", val)
 
             with st.spinner("Executando..."):
-                # TODO: api_client.render_prompt(prompt_name, final_prompt, model, temperature, max_tokens)
+                # TODO: api_client.render_prompt(prompt_name, final_prompt, model_id, temperature, max_tokens)
                 time.sleep(1.5)
 
             st.session_state.output = (
                 "Resultado aparecerá aqui após integração com a Lambda render-prompt."
             )
             st.session_state.output_meta = (
-                f"{model}  ·  temp {temperature:.2f}  ·  {max_tokens} tokens"
+                f"{model_name}  ·  temp {temperature:.2f}  ·  {max_tokens} tokens"
             )
             st.rerun()
 
@@ -173,16 +200,9 @@ with st.sidebar:
         Parâmetros</p>""",
         unsafe_allow_html=True,
     )
-    model = st.selectbox(
-        "Modelo",
-        options=["claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"],
-        help=(
-            "Escolha o modelo conforme a complexidade da tarefa.\n\n"
-            "• Sonnet — melhor custo-benefício para a maioria dos casos\n"
-            "• Opus — máxima capacidade de raciocínio, ideal para tarefas complexas\n"
-            "• Haiku — mais rápido e barato, ideal para respostas curtas e alto volume"
-        ),
-    )
+
+    model_names = list(st.session_state.model_options.keys())
+
     max_tokens = st.number_input(
         "Max tokens",
         min_value=100,
@@ -197,6 +217,7 @@ with st.sidebar:
             "• Respostas longas (relatórios, análises): 2048–4096"
         ),
     )
+
     st.divider()
     st.markdown(
         f"""<div style="background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.2);
@@ -224,6 +245,7 @@ st.markdown(
         Prompt Playground</span>
     <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#7c3aed;
         background:rgba(124,58,237,0.12); padding:3px 10px; border-radius:20px;
+        border:1px solid rgba(124,58,237,0.3);">beta</span>
     <span style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#4b5563;">
         Escreva, teste e faça deploy dos seus prompts</span></div>""",
     unsafe_allow_html=True,
@@ -301,7 +323,7 @@ with col_left:
     with tag_col:
         new_tag = st.text_input(
             "nova_tag",
-            placeholder="ex: suporte, reclamacao, producao, v2  —  clique em + para adicionar",
+            placeholder="ex: suporte, reclamacao, producao  —  clique em + para adicionar",
             label_visibility="collapsed",
             key="new_tag_input",
             help=(
@@ -343,19 +365,34 @@ with col_right:
         Configuração</p>""",
         unsafe_allow_html=True,
     )
+
+    model_name = st.selectbox(
+        "Modelo",
+        options=model_names,
+        key="selected_model",
+        help=(
+            "Modelos carregados via API do Bedrock.\n\n"
+            "• Haiku — mais rápido e barato, ideal para respostas curtas\n"
+            "• Sonnet — melhor custo-benefício para a maioria dos casos\n"
+            "• Opus — máxima capacidade de raciocínio, ideal para tarefas complexas"
+        ),
+    )
+    model_id = st.session_state.model_options[model_name]
+
     st.markdown(
-        f"""<div style="background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.2);
-        border-radius:10px; padding:10px 16px; margin-bottom:16px;
-        font-family:'JetBrains Mono',monospace; font-size:13px; color:#a78bfa;">{model}</div>""",
+        f"""<div style="font-family:'JetBrains Mono',monospace; font-size:10px;
+        color:#475569; margin-top:-8px; margin-bottom:12px; padding-left:2px;">
+        {model_id}</div>""",
         unsafe_allow_html=True,
     )
+
     temperature = st.slider(
-        "temperatura_slider",
+        "Temperatura",
         min_value=0.0,
         max_value=1.0,
         value=0.7,
         step=0.01,
-        label_visibility="collapsed",
+        label_visibility="visible",
         help=(
             "Controla o grau de aleatoriedade na resposta do modelo.\n\n"
             "• 0.0 – 0.3 (preciso): extração de dados, classificação, consistência crítica\n"
@@ -364,7 +401,21 @@ with col_right:
         ),
     )
     st.markdown(temp_bar_html(temperature), unsafe_allow_html=True)
-    st.markdown("<div style='height:12px'/>", unsafe_allow_html=True)
+
+    max_tokens = st.number_input(
+        "Max tokens",
+        min_value=100,
+        max_value=8096,
+        value=1024,
+        step=100,
+        help=(
+            "Limite máximo de tokens na resposta do modelo.\n"
+            "100 tokens ≈ 75 palavras.\n\n"
+            "• Respostas curtas (classificação, extração): 256–512\n"
+            "• Respostas médias (e-mails, resumos): 512–1024\n"
+            "• Respostas longas (relatórios, análises): 2048–4096"
+        ),
+    )
 
     btn1, btn2 = st.columns([1, 1], gap="small")
     with btn1:
@@ -416,15 +467,17 @@ if run_clicked:
     if not system_prompt.strip():
         st.warning("Preencha o system prompt antes de executar.")
     elif variables:
-        variables_modal(variables, system_prompt, model, temperature, max_tokens)
+        variables_modal(
+            variables, system_prompt, model_id, model_name, temperature, max_tokens
+        )
     else:
         with st.spinner("Executando..."):
-            # TODO: api_client.render_prompt(prompt_name, system_prompt, model, temperature, max_tokens)
+            # TODO: api_client.render_prompt(prompt_name, system_prompt, model_id, temperature, max_tokens)
             time.sleep(1.5)
         st.session_state.output = (
             "Resultado aparecerá aqui após integração com a Lambda render-prompt."
         )
         st.session_state.output_meta = (
-            f"{model}  ·  temp {temperature:.2f}  ·  {max_tokens} tokens"
+            f"{model_name}  ·  temp {temperature:.2f}  ·  {max_tokens} tokens"
         )
         st.rerun()
