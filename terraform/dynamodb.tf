@@ -1,3 +1,22 @@
+resource "aws_dynamodb_table" "prompts" {
+  name         = "${local.project}-prompts"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "prompt_id"
+  range_key    = "version"
+
+  attribute {
+    name = "prompt_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "version"
+    type = "S"
+  }
+
+  tags = { Project = local.project }
+}
+
 resource "aws_dynamodb_table" "history" {
   name         = "${local.project}-history"
   billing_mode = "PAY_PER_REQUEST"

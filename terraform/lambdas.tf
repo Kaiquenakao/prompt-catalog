@@ -44,3 +44,18 @@ module "get-execution" {
     HISTORY_TABLE = aws_dynamodb_table.history.name
   }
 }
+
+module "save-prompt" {
+  source     = "./modules/lambda"
+  name       = "${local.project}-save-prompt"
+  source_dir = "${path.root}/../lambdas/save-prompt"
+  memory     = 256
+  timeout    = 30
+
+  extra_policy_arns = [aws_iam_policy.dynamodb_prompts.arn]
+
+  env_vars = {
+    REGION        = "us-east-1"
+    PROMPTS_TABLE = aws_dynamodb_table.prompts.name
+  }
+}

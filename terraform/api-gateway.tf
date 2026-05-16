@@ -73,6 +73,62 @@ resource "aws_lambda_permission" "get_models" {
   source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
 }
 
+# ── POST /prompts — salva novo prompt/versão ──────────────
+resource "aws_api_gateway_resource" "prompts" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  parent_id   = aws_api_gateway_rest_api.this.root_resource_id
+  path_part   = "prompts"
+}
+
+resource "aws_api_gateway_method" "post_prompts" {
+  rest_api_id      = aws_api_gateway_rest_api.this.id
+  resource_id      = aws_api_gateway_resource.prompts.id
+  http_method      = "POST"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "post_prompts" {
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  resource_id             = aws_api_gateway_resource.prompts.id
+  http_method             = aws_api_gateway_method.post_prompts.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = module.save-prompt.invoke_arn
+}
+
+# ── GET /prompts/{prompt_id} — busca versões ──────────────
+resource "aws_api_gateway_resource" "prompt_id" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  parent_id   = aws_api_gateway_resource.prompts.id
+  path_part   = "{prompt_id}"
+}
+
+resource "aws_api_gateway_method" "get_prompt" {
+  rest_api_id      = aws_api_gateway_rest_api.this.id
+  resource_id      = aws_api_gateway_resource.prompt_id.id
+  http_method      = "GET"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "get_prompt" {
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  resource_id             = aws_api_gateway_resource.prompt_id.id
+  http_method             = aws_api_gateway_method.get_prompt.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = module.save-prompt.invoke_arn
+}
+
+resource "aws_lambda_permission" "save_prompt" {
+  statement_id  = "AllowAPIGatewaySavePrompt"
+  action        = "lambda:InvokeFunction"
+  function_name = module.save-prompt.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
+}
+
 # ── POST /run ─────────────────────────────────────────────
 resource "aws_api_gateway_resource" "run" {
   rest_api_id = aws_api_gateway_rest_api.this.id
@@ -167,14 +223,21 @@ resource "aws_lambda_permission" "get_executions" {
 resource "aws_api_gateway_deployment" "this" {
   rest_api_id = aws_api_gateway_rest_api.this.id
 
+  depends_on = [
+    aws_api_gateway_integration.get_models,
+    aws_api_gateway_integration.post_prompts,
+    aws_api_gateway_integration.get_prompt,
+    aws_api_gateway_integration.post_run,
+    aws_api_gateway_integration.get_executions,
+    aws_api_gateway_integration.get_execution_id,
+  ]
+
   triggers = {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.models.id,
-      aws_api_gateway_method.get_models.id,
-      aws_api_gateway_integration.get_models.id,
+      aws_api_gateway_resource.prompts.id,
+      aws_api_gateway_resource.prompt_id.id,
       aws_api_gateway_resource.run.id,
-      aws_api_gateway_method.post_run.id,
-      aws_api_gateway_integration.post_run.id,
       aws_api_gateway_resource.executions.id,
       aws_api_gateway_resource.execution_id.id,
     ]))

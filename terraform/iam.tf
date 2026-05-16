@@ -51,5 +51,28 @@ resource "aws_iam_policy" "dynamodb_history" {
   })
 }
 
+resource "aws_iam_policy" "dynamodb_prompts" {
+  name = "${local.project}-dynamodb-prompts"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:UpdateItem",
+        ]
+        Resource = [
+          aws_dynamodb_table.prompts.arn,
+          "${aws_dynamodb_table.prompts.arn}/index/*",
+        ]
+      }
+    ]
+  })
+}
+
 # dynamodb_rw — adicionar quando criar o dynamodb.tf
 

@@ -131,6 +131,30 @@ def get_history(session_id: str) -> list:
     return resp.json().get("executions", [])
 
 
+def check_prompt_versions(prompt_name: str) -> dict:
+    try:
+        resp = httpx.get(
+            f"{_base()}/prompts/{prompt_name}",
+            headers=_headers(),
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return {"versions": [], "count": 0}
+
+
+def deploy_prompt(payload: dict) -> dict:
+    resp = httpx.post(
+        f"{_base()}/prompts",
+        headers=_headers(),
+        json=payload,
+        timeout=15.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 # ── helpers ───────────────────────────────────────────────
 def temp_bar_html(value: float) -> str:
     pct = value * 100
@@ -244,6 +268,8 @@ if "output_meta" not in st.session_state:
 if "model_options" not in st.session_state:
     with st.spinner("Carregando modelos..."):
         st.session_state.model_options = fetch_models()
+if "deploy_success" not in st.session_state:
+    st.session_state.deploy_success = None
 
 
 # ── MODAL: campos obrigatórios ────────────────────────────
@@ -315,7 +341,127 @@ def variables_modal(
             )
 
 
-# ── MODAL: histórico ──────────────────────────────────────
+# ── MODAL: deploy ─────────────────────────────────────────
+@st.dialog("Deploy para produção")
+def deploy_modal(
+    prompt_name,
+    system_prompt,
+    description,
+    tags,
+    model_id,
+    model_name,
+    temperature,
+    max_tokens,
+):
+    # verifica versões existentes
+    with st.spinner("Verificando versões existentes..."):
+        data = check_prompt_versions(prompt_name)
+        count = data.get("count", 0)
+        next_v = f"v{count + 1}"
+        is_new = count == 0
+
+    if is_new:
+        st.markdown(
+            f"""<div style="background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.3);
+            border-radius:10px; padding:14px 18px; margin-bottom:16px;">
+            <span style="font-size:11px; color:#22c55e; font-family:'Space Grotesk',sans-serif;
+                font-weight:600;">Novo prompt — será criado como {next_v}</span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"""<div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3);
+            border-radius:10px; padding:14px 18px; margin-bottom:16px;">
+            <span style="font-size:11px; color:#f59e0b; font-family:'Space Grotesk',sans-serif;
+                font-weight:600;">Já existe {count} versão(ões) deste prompt.</span><br>
+            <span style="font-size:12px; color:#94a3b8; font-family:'Space Grotesk',sans-serif;">
+                Será criada a versão <strong style="color:#f1f5f9;">{next_v}</strong> em produção.
+            </span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    # resumo do que será salvo
+    st.markdown(
+        f"""
+    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:#475569; font-family:'Space Grotesk',sans-serif;">Nome</span>
+            <span style="font-size:12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace;">{prompt_name}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:#475569; font-family:'Space Grotesk',sans-serif;">Versão</span>
+            <span style="font-size:12px; color:#a78bfa; font-family:'JetBrains Mono',monospace;">{next_v}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:#475569; font-family:'Space Grotesk',sans-serif;">Modelo</span>
+            <span style="font-size:12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace;">{model_name}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:#475569; font-family:'Space Grotesk',sans-serif;">Temperatura</span>
+            <span style="font-size:12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace;">{temperature:.2f}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:#475569; font-family:'Space Grotesk',sans-serif;">Max tokens</span>
+            <span style="font-size:12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace;">{max_tokens}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:#475569; font-family:'Space Grotesk',sans-serif;">Status</span>
+            <span style="background:rgba(34,197,94,0.15); color:#22c55e; border:1px solid rgba(34,197,94,0.4);
+                border-radius:4px; padding:2px 8px; font-size:10px; font-family:'JetBrains Mono',monospace;">
+                prod · ativo</span>
+        </div>
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.divider()
+
+    is_active = st.toggle(
+        "Desativar versões anteriores ao ativar esta",
+        value=False,
+        help=(
+            "Desativado (padrão): todas as versões ativas continuam rodando em paralelo — "
+            "ideal para testes A/B.\n\n"
+            "Ativado: as versões anteriores são desativadas e apenas esta entra em uso."
+        ),
+    )
+
+    st.markdown("<div style='height:4px'/>", unsafe_allow_html=True)
+    c1, c2 = st.columns([2, 1], gap="small")
+    with c1:
+        confirm = st.button(
+            "Confirmar deploy", type="primary", use_container_width=True
+        )
+    with c2:
+        if st.button("Cancelar", type="secondary", use_container_width=True):
+            st.rerun()
+
+    if confirm:
+        with st.spinner("Publicando..."):
+            try:
+                result = deploy_prompt(
+                    {
+                        "prompt_name": prompt_name,
+                        "system_prompt": system_prompt,
+                        "description": description,
+                        "tags": tags,
+                        "model_id": model_id,
+                        "temperature": temperature,
+                        "max_tokens": int(max_tokens),
+                        "session_id": st.session_state.session_id,
+                        "is_active": not is_active,
+                    }
+                )
+                version = result.get("version", next_v)
+                st.session_state.deploy_success = f"{prompt_name} {version}"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro no deploy: {e}")
+
+
 @st.dialog("Histórico da sessão", width="large")
 def history_modal():
     st.markdown(
@@ -497,6 +643,32 @@ st.markdown(
         Escreva, teste e faça deploy dos seus prompts</span></div>""",
     unsafe_allow_html=True,
 )
+
+# ── BANNER DE SUCESSO ─────────────────────────────────────
+if st.session_state.deploy_success:
+    msg = st.session_state.deploy_success
+    c1, c2 = st.columns([10, 1])
+    with c1:
+        st.markdown(
+            f"""<div style="background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.3);
+            border-radius:10px; padding:12px 18px; display:flex; align-items:center; gap:12px;">
+            <span style="font-size:13px; color:#22c55e; font-family:'Space Grotesk',sans-serif; font-weight:600;">
+                Deploy realizado com sucesso
+            </span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px;
+                color:#a78bfa; background:rgba(124,58,237,0.12); padding:2px 10px;
+                border-radius:999px; border:1px solid rgba(124,58,237,0.3);">{msg}</span>
+            <span style="font-size:12px; color:#374151; font-family:'Space Grotesk',sans-serif;">
+                · <a href="/catalog" style="color:#a78bfa; text-decoration:none;">ver no catálogo</a>
+                <span style="font-size:10px; color:#374151;"> (em breve)</span>
+            </span>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    with c2:
+        if st.button("✕", type="secondary", use_container_width=True):
+            st.session_state.deploy_success = None
+            st.rerun()
 
 # ── COLUNAS ───────────────────────────────────────────────
 col_left, col_right = st.columns([2, 2], gap="large")
@@ -683,6 +855,7 @@ with col_right:
     )
 
     if st.session_state.output:
+        # forma mais elegante: divide por parágrafos, limpa cada um, rejunta
         clean_output = "\n\n".join(
             p.strip() for p in st.session_state.output.split("\n\n") if p.strip()
         )
@@ -709,13 +882,33 @@ with col_right:
         )
 
     st.markdown("<div style='height:10px'/>", unsafe_allow_html=True)
-    st.button("Deploy", type="secondary", use_container_width=True, disabled=True)
+    deploy_clicked = st.button("Deploy", type="secondary", use_container_width=True)
 
 # ── LÓGICA ────────────────────────────────────────────────
 variables = extract_variables(system_prompt)
 
 if history_clicked:
     history_modal()
+
+if deploy_clicked:
+    missing = []
+    if not prompt_name.strip():
+        missing.append("Nome")
+    if not system_prompt.strip():
+        missing.append("System prompt")
+    if missing:
+        validation_modal(missing)
+    else:
+        deploy_modal(
+            prompt_name,
+            system_prompt,
+            description,
+            st.session_state.tags,
+            model_id,
+            model_name,
+            temperature,
+            max_tokens,
+        )
 
 if run_clicked:
     missing = []
