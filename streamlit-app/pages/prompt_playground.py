@@ -141,6 +141,27 @@ if "model_options" not in st.session_state:
         st.session_state.model_options = fetch_models()
 
 
+@st.dialog("Campos obrigatórios não preenchidos")
+def validation_modal(missing: list):
+    st.markdown(
+        """<p style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#94a3b8; margin:0 0 16px;">
+        Preencha os campos abaixo antes de executar o prompt.</p>""",
+        unsafe_allow_html=True,
+    )
+    for field in missing:
+        st.markdown(
+            f"""<div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3);
+            border-radius:8px; padding:10px 14px; margin-bottom:8px;
+            font-family:'Space Grotesk',sans-serif; font-size:13px; color:#fca5a5;">
+            {field}
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    st.markdown("<div style='height:8px'/>", unsafe_allow_html=True)
+    if st.button("Fechar", type="secondary", use_container_width=True):
+        st.rerun()
+
+
 # ── MODAL DE VARIÁVEIS ────────────────────────────────────
 @st.dialog("Variáveis do prompt")
 def variables_modal(
@@ -203,35 +224,16 @@ with st.sidebar:
 
     model_names = list(st.session_state.model_options.keys())
 
-    max_tokens = st.number_input(
-        "Max tokens",
-        min_value=100,
-        max_value=8096,
-        value=1024,
-        step=100,
-        help=(
-            "Limite máximo de tokens na resposta do modelo.\n"
-            "100 tokens ≈ 75 palavras.\n\n"
-            "• Respostas curtas (classificação, extração): 256–512\n"
-            "• Respostas médias (e-mails, resumos): 512–1024\n"
-            "• Respostas longas (relatórios, análises): 2048–4096"
-        ),
-    )
-
     st.divider()
     st.markdown(
-        f"""<div style="background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.2);
+        """<div style="background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.2);
         border-radius:10px; padding:12px 14px;">
         <p style="font-family:'Space Grotesk',sans-serif; font-size:11px; color:#7c3aed;
             letter-spacing:0.12em; text-transform:uppercase; margin:0 0 10px; font-weight:600;">
             Sessão</p>
-        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+        <div style="display:flex; justify-content:space-between;">
             <span style="font-size:12px; color:#94a3b8;">Status</span>
             <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#22c55e;">draft</span>
-        </div>
-        <div style="display:flex; justify-content:space-between;">
-            <span style="font-size:12px; color:#94a3b8;">Max tokens</span>
-            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#a78bfa;">{max_tokens}</span>
         </div></div>""",
         unsafe_allow_html=True,
     )
@@ -464,8 +466,16 @@ with col_right:
 variables = extract_variables(system_prompt)
 
 if run_clicked:
+    missing = []
+    if not prompt_name.strip():
+        missing.append("Nome")
     if not system_prompt.strip():
-        st.warning("Preencha o system prompt antes de executar.")
+        missing.append("System prompt")
+    if not description.strip():
+        missing.append("Quando usar este prompt")
+
+    if missing:
+        validation_modal(missing)
     elif variables:
         variables_modal(
             variables, system_prompt, model_id, model_name, temperature, max_tokens
