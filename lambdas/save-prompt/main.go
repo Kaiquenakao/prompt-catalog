@@ -63,9 +63,12 @@ type PromptRecord struct {
 // ── handler ───────────────────────────────────────────────
 
 func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// GET /prompts/{prompt_id} — busca versões existentes
+	// PATCH /prompts/{prompt_id}/versions/{version} — ativa/desativa versão
 	if promptID, ok := req.PathParameters["prompt_id"]; ok {
-		return getVersions(ctx, promptID)
+		version := req.PathParameters["version"]
+		if version != "" && req.HTTPMethod == "PATCH" {
+			return toggleStatus(ctx, promptID, version, req.Body)
+		}
 	}
 
 	// POST /prompts — salva novo prompt/versão
@@ -80,29 +83,36 @@ func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.API
 	return savePrompt(ctx, body)
 }
 
-// getVersions — lista todas as versões de um prompt
-func getVersions(ctx context.Context, promptID string) (events.APIGatewayProxyResponse, error) {
-	result, err := dynamoClient.Query(ctx, &dynamodb.QueryInput{
-		TableName:              aws.String(promptsTable),
-		KeyConditionExpression: aws.String("prompt_id = :pid"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pid": &types.AttributeValueMemberS{Value: promptID},
-		},
-		ScanIndexForward: aws.Bool(false), // versão mais recente primeiro
-	})
-	if err != nil {
-		return errorResponse(500, "erro ao buscar versões: "+err.Error()), nil
+// toggleStatus — ativa ou desativa uma versão específica
+func toggleStatus(ctx context.Context, promptID string, version string, body string) (events.APIGatewayProxyResponse, error) {
+	var req struct {
+		IsActive bool `json:"is_active"`
+	}
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		return errorResponse(400, "body inválido"), nil
 	}
 
-	records := make([]PromptRecord, 0)
-	attributevalue.UnmarshalListOfMaps(result.Items, &records)
-
-	body, _ := json.Marshal(map[string]interface{}{
-		"prompt_id": promptID,
-		"versions":  records,
-		"count":     len(records),
+	_, err := dynamoClient.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(promptsTable),
+		Key: map[string]types.AttributeValue{
+			"prompt_id": &types.AttributeValueMemberS{Value: promptID},
+			"version":   &types.AttributeValueMemberS{Value: version},
+		},
+		UpdateExpression: aws.String("SET is_active = :a"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":a": &types.AttributeValueMemberBOOL{Value: req.IsActive},
+		},
 	})
-	return successResponse(string(body)), nil
+	if err != nil {
+		return errorResponse(500, "erro ao atualizar status: "+err.Error()), nil
+	}
+
+	resp, _ := json.Marshal(map[string]interface{}{
+		"prompt_id": promptID,
+		"version":   version,
+		"is_active": req.IsActive,
+	})
+	return successResponse(string(resp)), nil
 }
 
 // savePrompt — cria nova versão, desativa a anterior se is_active=true
@@ -184,12 +194,12 @@ func savePrompt(ctx context.Context, req SaveRequest) (events.APIGatewayProxyRes
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"prompt_id":       record.PromptID,
-		"version":         versionStr,
-		"version_num":     nextVersionNum,
+		"prompt_id":        record.PromptID,
+		"version":          versionStr,
+		"version_num":      nextVersionNum,
 		"is_first_version": isFirstVersion,
-		"is_active":       req.IsActive,
-		"status":          "prod",
+		"is_active":        req.IsActive,
+		"status":           "prod",
 	})
 	return successResponse(string(body)), nil
 }

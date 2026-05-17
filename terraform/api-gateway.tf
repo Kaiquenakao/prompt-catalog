@@ -154,6 +154,36 @@ resource "aws_lambda_permission" "save_prompt" {
   source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
 }
 
+# ── PATCH /prompts/{prompt_id}/versions/{version} ────────
+resource "aws_api_gateway_resource" "versions" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  parent_id   = aws_api_gateway_resource.prompt_id.id
+  path_part   = "versions"
+}
+
+resource "aws_api_gateway_resource" "version_id" {
+  rest_api_id = aws_api_gateway_rest_api.this.id
+  parent_id   = aws_api_gateway_resource.versions.id
+  path_part   = "{version}"
+}
+
+resource "aws_api_gateway_method" "patch_version" {
+  rest_api_id      = aws_api_gateway_rest_api.this.id
+  resource_id      = aws_api_gateway_resource.version_id.id
+  http_method      = "PATCH"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "patch_version" {
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  resource_id             = aws_api_gateway_resource.version_id.id
+  http_method             = aws_api_gateway_method.patch_version.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = module.save-prompt.invoke_arn
+}
+
 # ── POST /run ─────────────────────────────────────────────
 resource "aws_api_gateway_resource" "run" {
   rest_api_id = aws_api_gateway_rest_api.this.id
@@ -253,6 +283,7 @@ resource "aws_api_gateway_deployment" "this" {
     aws_api_gateway_integration.get_prompts,
     aws_api_gateway_integration.post_prompts,
     aws_api_gateway_integration.get_prompt,
+    aws_api_gateway_integration.patch_version,
     aws_api_gateway_integration.post_run,
     aws_api_gateway_integration.get_executions,
     aws_api_gateway_integration.get_execution_id,

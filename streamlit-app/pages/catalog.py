@@ -208,3 +208,13 @@ else:
                     f'color:#94a3b8; margin:0;">{max_tokens}</p>',
                     unsafe_allow_html=True,
                 )
+            with _:
+                st.markdown("<div style='height:4px'/>", unsafe_allow_html=True)
+                if st.button(
+                    "Ver detalhes",
+                    key=f"det_{pid}",
+                    type="secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state["detail_prompt_id"] = pid
+                    st.switch_page("pages/detalhes.py")

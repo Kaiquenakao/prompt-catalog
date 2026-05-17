@@ -37,10 +37,23 @@ resource "aws_dynamodb_table" "history" {
     type = "S"
   }
 
-  # índice para buscar histórico por sessão ordenado por data
+  attribute {
+    name = "prompt_name"
+    type = "S"
+  }
+
+  # histórico por sessão (playground)
   global_secondary_index {
     name            = "session-index"
     hash_key        = "session_id"
+    range_key       = "created_at"
+    projection_type = "ALL"
+  }
+
+  # histórico por prompt (detalhes — playground + produção)
+  global_secondary_index {
+    name            = "prompt-index"
+    hash_key        = "prompt_name"
     range_key       = "created_at"
     projection_type = "ALL"
   }

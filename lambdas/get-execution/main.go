@@ -27,32 +27,40 @@ func init() {
 }
 
 type ExecutionRecord struct {
-	ExecutionID  string  `dynamodbav:"execution_id"  json:"execution_id"`
-	SessionID    string  `dynamodbav:"session_id"    json:"session_id"`
-	PromptName   string  `dynamodbav:"prompt_name"   json:"prompt_name"`
-	SystemPrompt string  `dynamodbav:"system_prompt" json:"system_prompt"`
-	UserMessage  string  `dynamodbav:"user_message"  json:"user_message"`
-	ModelID      string  `dynamodbav:"model_id"      json:"model_id"`
-	Temperature  float64 `dynamodbav:"temperature"   json:"temperature"`
-	MaxTokens    int     `dynamodbav:"max_tokens"    json:"max_tokens"`
-	Status       string  `dynamodbav:"status"        json:"status"`
-	Output       string  `dynamodbav:"output"        json:"output"`
-	InputTokens  int     `dynamodbav:"input_tokens"  json:"input_tokens"`
-	OutputTokens int     `dynamodbav:"output_tokens" json:"output_tokens"`
-	LatencyMs    int64   `dynamodbav:"latency_ms"    json:"latency_ms"`
-	CreatedAt    string  `dynamodbav:"created_at"    json:"created_at"`
+	ExecutionID   string  `dynamodbav:"execution_id"  json:"execution_id"`
+	SessionID     string  `dynamodbav:"session_id"    json:"session_id"`
+	PromptName    string  `dynamodbav:"prompt_name"   json:"prompt_name"`
+	PromptVersion string  `dynamodbav:"prompt_version" json:"prompt_version"`
+	RunType       string  `dynamodbav:"run_type"      json:"run_type"`
+	SystemPrompt  string  `dynamodbav:"system_prompt" json:"system_prompt"`
+	UserMessage   string  `dynamodbav:"user_message"  json:"user_message"`
+	ModelID       string  `dynamodbav:"model_id"      json:"model_id"`
+	Temperature   float64 `dynamodbav:"temperature"   json:"temperature"`
+	MaxTokens     int     `dynamodbav:"max_tokens"    json:"max_tokens"`
+	Status        string  `dynamodbav:"status"        json:"status"`
+	Output        string  `dynamodbav:"output"        json:"output"`
+	InputTokens   int     `dynamodbav:"input_tokens"  json:"input_tokens"`
+	OutputTokens  int     `dynamodbav:"output_tokens" json:"output_tokens"`
+	LatencyMs     int64   `dynamodbav:"latency_ms"    json:"latency_ms"`
+	CreatedAt     string  `dynamodbav:"created_at"    json:"created_at"`
 }
 
 func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// GET /executions/{execution_id} — status de uma execução específica (polling)
+	// GET /executions/{execution_id} — polling
 	if execID, ok := req.PathParameters["execution_id"]; ok {
 		return getExecution(ctx, execID)
 	}
 
-	// GET /executions?session_id=xxx — histórico da sessão
+	// GET /executions?prompt_name=xxx&run_type=playground — histórico do prompt
+	if promptName := req.QueryStringParameters["prompt_name"]; promptName != "" {
+		runType := req.QueryStringParameters["run_type"] // playground | production | "" (todos)
+		return listByPrompt(ctx, promptName, runType)
+	}
+
+	// GET /executions?session_id=xxx — histórico da sessão (playground)
 	sessionID := req.QueryStringParameters["session_id"]
 	if sessionID == "" {
-		return errorResponse(400, "session_id é obrigatório"), nil
+		return errorResponse(400, "session_id ou prompt_name é obrigatório"), nil
 	}
 	return listExecutions(ctx, sessionID)
 }
@@ -81,7 +89,43 @@ func getExecution(ctx context.Context, executionID string) (events.APIGatewayPro
 	return successResponse(string(body)), nil
 }
 
-// listExecutions — histórico filtrado por session_id (isolado por usuário)
+// listByPrompt — histórico por prompt_name com filtro opcional de run_type
+func listByPrompt(ctx context.Context, promptName string, runType string) (events.APIGatewayProxyResponse, error) {
+	input := &dynamodb.QueryInput{
+		TableName:              aws.String(historyTable),
+		IndexName:              aws.String("prompt-index"),
+		KeyConditionExpression: aws.String("prompt_name = :pn"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pn": &types.AttributeValueMemberS{Value: promptName},
+		},
+		ScanIndexForward: aws.Bool(false),
+		Limit:            aws.Int32(100),
+	}
+
+	// filtra por run_type se informado
+	if runType != "" {
+		input.FilterExpression = aws.String("run_type = :rt")
+		input.ExpressionAttributeValues[":rt"] = &types.AttributeValueMemberS{Value: runType}
+	}
+
+	result, err := dynamoClient.Query(ctx, input)
+	if err != nil {
+		return errorResponse(500, "erro ao listar histórico: "+err.Error()), nil
+	}
+
+	records := make([]ExecutionRecord, 0)
+	if err := attributevalue.UnmarshalListOfMaps(result.Items, &records); err != nil {
+		return errorResponse(500, "erro ao deserializar: "+err.Error()), nil
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"executions": records,
+		"count":      len(records),
+	})
+	return successResponse(string(body)), nil
+}
+
+// listExecutions — histórico por session_id
 func listExecutions(ctx context.Context, sessionID string) (events.APIGatewayProxyResponse, error) {
 	result, err := dynamoClient.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(historyTable),
