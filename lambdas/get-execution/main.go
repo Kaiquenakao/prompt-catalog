@@ -27,22 +27,23 @@ func init() {
 }
 
 type ExecutionRecord struct {
-	ExecutionID   string  `dynamodbav:"execution_id"  json:"execution_id"`
-	SessionID     string  `dynamodbav:"session_id"    json:"session_id"`
-	PromptName    string  `dynamodbav:"prompt_name"   json:"prompt_name"`
-	PromptVersion string  `dynamodbav:"prompt_version" json:"prompt_version"`
-	RunType       string  `dynamodbav:"run_type"      json:"run_type"`
-	SystemPrompt  string  `dynamodbav:"system_prompt" json:"system_prompt"`
-	UserMessage   string  `dynamodbav:"user_message"  json:"user_message"`
-	ModelID       string  `dynamodbav:"model_id"      json:"model_id"`
-	Temperature   float64 `dynamodbav:"temperature"   json:"temperature"`
-	MaxTokens     int     `dynamodbav:"max_tokens"    json:"max_tokens"`
-	Status        string  `dynamodbav:"status"        json:"status"`
-	Output        string  `dynamodbav:"output"        json:"output"`
-	InputTokens   int     `dynamodbav:"input_tokens"  json:"input_tokens"`
-	OutputTokens  int     `dynamodbav:"output_tokens" json:"output_tokens"`
-	LatencyMs     int64   `dynamodbav:"latency_ms"    json:"latency_ms"`
-	CreatedAt     string  `dynamodbav:"created_at"    json:"created_at"`
+	ExecutionID   string            `dynamodbav:"execution_id"  json:"execution_id"`
+	SessionID     string            `dynamodbav:"session_id"    json:"session_id"`
+	PromptName    string            `dynamodbav:"prompt_name"   json:"prompt_name"`
+	PromptVersion string            `dynamodbav:"prompt_version" json:"prompt_version"`
+	RunType       string            `dynamodbav:"run_type"      json:"run_type"`
+	SystemPrompt  string            `dynamodbav:"system_prompt" json:"system_prompt"`
+	UserMessage   string            `dynamodbav:"user_message"  json:"user_message"`
+	VariablesUsed map[string]string `dynamodbav:"variables_used" json:"variables_used"`
+	ModelID       string            `dynamodbav:"model_id"      json:"model_id"`
+	Temperature   float64           `dynamodbav:"temperature"   json:"temperature"`
+	MaxTokens     int               `dynamodbav:"max_tokens"    json:"max_tokens"`
+	Status        string            `dynamodbav:"status"        json:"status"`
+	Output        string            `dynamodbav:"output"        json:"output"`
+	InputTokens   int               `dynamodbav:"input_tokens"  json:"input_tokens"`
+	OutputTokens  int               `dynamodbav:"output_tokens" json:"output_tokens"`
+	LatencyMs     int64             `dynamodbav:"latency_ms"    json:"latency_ms"`
+	CreatedAt     string            `dynamodbav:"created_at"    json:"created_at"`
 }
 
 func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {

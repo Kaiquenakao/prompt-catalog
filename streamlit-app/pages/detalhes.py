@@ -184,8 +184,53 @@ def render_history(executions: list, current_version: str):
             unsafe_allow_html=True,
         )
 
-        with st.expander("ver output", expanded=False):
+        with st.expander("ver detalhes", expanded=False):
+            sp = ex.get("system_prompt", "")
+            if sp:
+                st.markdown(
+                    '<p style="font-size:9px; color:#475569; text-transform:uppercase; '
+                    "letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 4px;\">"
+                    "System prompt</p>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"<p style=\"font-family:'JetBrains Mono',monospace; font-size:11px; "
+                    f'color:#94a3b8; line-height:1.6; white-space:pre-wrap; margin:0 0 14px;">'
+                    f"{sp[:400]}{'...' if len(sp) > 400 else ''}</p>",
+                    unsafe_allow_html=True,
+                )
+
+            # variáveis — extraídas do system prompt original
+            vars_used = ex.get("variables_used", {})
+            if vars_used:
+                st.markdown(
+                    '<p style="font-size:9px; color:#475569; text-transform:uppercase; '
+                    "letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 6px;\">"
+                    "Variáveis</p>",
+                    unsafe_allow_html=True,
+                )
+                for k, val in vars_used.items():
+                    st.markdown(
+                        f"<p style=\"font-family:'JetBrains Mono',monospace; font-size:11px; "
+                        f'color:#94a3b8; margin:0 0 4px;">'
+                        f'<span style="color:#475569;">{k}:</span> {val}</p>',
+                        unsafe_allow_html=True,
+                    )
+                st.markdown("<div style='height:10px'/>", unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    "<p style=\"font-size:9px; color:#2a3142; font-family:'Space Grotesk',sans-serif; "
+                    'margin:0 0 14px;">Sem variáveis registradas nesta execução.</p>',
+                    unsafe_allow_html=True,
+                )
+
             output = ex.get("output", "")
+            st.markdown(
+                '<p style="font-size:10px; color:#7c3aed; text-transform:uppercase; '
+                "letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; "
+                'margin:0 0 8px; font-weight:600;">Output</p>',
+                unsafe_allow_html=True,
+            )
             if output:
                 clean = "\n\n".join(
                     p.strip() for p in output.split("\n\n") if p.strip()
@@ -211,6 +256,7 @@ def execute_run(
     temperature,
     max_tokens,
     session_id,
+    variables_used=None,
 ):
     payload = {
         "prompt_name": prompt_name,
@@ -220,6 +266,7 @@ def execute_run(
         "temperature": temperature,
         "max_tokens": int(max_tokens),
         "session_id": session_id,
+        "variables_used": variables_used or {},
     }
     with st.spinner("Executando..."):
         result = run_prompt_api(payload)
@@ -428,17 +475,6 @@ with col_main:
             )
 
         st.markdown("<div style='height:12px'/>", unsafe_allow_html=True)
-
-        if tags:
-            chips = " ".join(
-                f'<span style="background:rgba(124,58,237,0.15); color:#a78bfa; '
-                f"border:1px solid rgba(124,58,237,0.35); border-radius:999px; "
-                f"padding:3px 10px; font-size:11px; font-family:'Space Grotesk',sans-serif;\">{t}</span>"
-                for t in tags
-            )
-            st.markdown(chips, unsafe_allow_html=True)
-            st.markdown("<div style='height:8px'/>", unsafe_allow_html=True)
-
         st.divider()
 
         st.markdown(
@@ -469,6 +505,28 @@ with col_main:
             label_visibility="collapsed",
         )
 
+        st.divider()
+
+        st.markdown(
+            """<p style="font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed;
+            letter-spacing:0.15em; text-transform:uppercase; margin:0 0 8px; font-weight:600;">
+            Tags</p>""",
+            unsafe_allow_html=True,
+        )
+        if tags:
+            chips = " ".join(
+                f'<span style="background:rgba(124,58,237,0.15); color:#a78bfa; '
+                f"border:1px solid rgba(124,58,237,0.35); border-radius:999px; "
+                f"padding:3px 10px; font-size:11px; font-family:'Space Grotesk',sans-serif;\">{t}</span>"
+                for t in tags
+            )
+            st.markdown(chips, unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<p style="font-size:12px; color:#2a3142;">Sem tags.</p>',
+                unsafe_allow_html=True,
+            )
+
     # ── TESTAR ────────────────────────────────────────────
     with tab_test:
         st.markdown(
@@ -486,6 +544,23 @@ with col_main:
             </div>""",
             unsafe_allow_html=True,
         )
+
+        # system prompt visível — somente leitura
+        st.markdown(
+            """<p style="font-family:'Space Grotesk',sans-serif; font-size:10px; color:#475569;
+            letter-spacing:0.15em; text-transform:uppercase; margin:0 0 6px; font-weight:600;">
+            System prompt</p>""",
+            unsafe_allow_html=True,
+        )
+        st.text_area(
+            "test_sys_prompt",
+            value=sys_prompt,
+            height=160,
+            disabled=True,
+            label_visibility="collapsed",
+        )
+
+        st.markdown("<div style='height:12px'/>", unsafe_allow_html=True)
 
         variables = extract_variables(sys_prompt)
         var_values = {}
@@ -547,11 +622,9 @@ with col_main:
             ):
                 st.warning("Preencha todas as variáveis antes de executar.")
             else:
-                final = sys_prompt
-                for var, val in var_values.items():
-                    final = final.replace(f"{{{{{var}}}}}", val)
+                # passa prompt original + variáveis separados — Lambda faz a substituição
                 execute_run(
-                    final,
+                    sys_prompt,
                     prompt_id,
                     sel_label,
                     model_id,
@@ -559,6 +632,7 @@ with col_main:
                     temperature,
                     max_tokens,
                     st.session_state.detail_session_id,
+                    variables_used=var_values if variables else {},
                 )
 
     # ── HISTÓRICO ─────────────────────────────────────────
