@@ -327,39 +327,6 @@ streamlit run app.py
 Acesse em `http://localhost:8501`
 
 ---
-
-## Deploy de atualizações
-
-### Atualizar uma Lambda
-
-```bash
-cd lambdas/run-prompt
-$env:GOOS="linux"; $env:GOARCH="amd64"  # PowerShell
-go build -o bootstrap main.go
-
-cd ../../terraform
-terraform apply
-```
-
-### Forçar redeployment do API Gateway
-
-Necessário quando adiciona novas rotas:
-
-```bash
-cd terraform
-terraform apply -replace="aws_api_gateway_deployment.this"
-```
-
-### Adicionar nova Lambda
-
-1. Crie a pasta em `lambdas/nova-lambda/` com `main.go` e `go.mod`
-2. Adicione o módulo em `terraform/lambdas.tf`
-3. Adicione a rota em `terraform/api-gateway.tf`
-4. Adicione a política IAM necessária em `terraform/iam.tf`
-5. Rode `terraform init && terraform apply`
-
----
-
 ## Variáveis nos prompts
 
 Use `{{nome_da_variavel}}` no system prompt para criar campos dinâmicos:
