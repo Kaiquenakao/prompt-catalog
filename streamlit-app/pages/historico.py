@@ -126,7 +126,10 @@ with f1:
         unsafe_allow_html=True,
     )
     search_name = st.text_input(
-        "buscar", placeholder="buscar por nome...", label_visibility="collapsed"
+        "buscar",
+        placeholder="buscar por nome...",
+        label_visibility="collapsed",
+        help="Filtra execuções pelo nome do prompt. A busca é parcial — 'suporte' retorna 'suporte_reclamacao'.",
     )
 with f2:
     st.markdown(
@@ -142,6 +145,10 @@ with f2:
             "production": "Produção",
         }[x],
         label_visibility="collapsed",
+        help=(
+            "Playground — execuções feitas manualmente no Playground ou na aba Testar dos Detalhes.\n\n"
+            "Produção — execuções feitas por sistemas externos via API (sem session_id)."
+        ),
     )
 with f3:
     st.markdown(
@@ -149,14 +156,22 @@ with f3:
         unsafe_allow_html=True,
     )
     date_from = st.date_input(
-        "De", value=date.today() - timedelta(days=7), label_visibility="collapsed"
+        "De",
+        value=date.today() - timedelta(days=7),
+        label_visibility="collapsed",
+        help="Data inicial do período. Padrão: últimos 7 dias.",
     )
 with f4:
     st.markdown(
         "<p style=\"font-size:10px; color:#475569; margin:0 0 4px; font-family:'Space Grotesk',sans-serif; text-transform:uppercase; letter-spacing:0.1em;\">Até</p>",
         unsafe_allow_html=True,
     )
-    date_to = st.date_input("Até", value=date.today(), label_visibility="collapsed")
+    date_to = st.date_input(
+        "Até",
+        value=date.today(),
+        label_visibility="collapsed",
+        help="Data final do período. Padrão: hoje.",
+    )
 with f5:
     st.markdown(
         '<p style="font-size:10px; color:#475569; margin:0 0 4px;">&nbsp;</p>',

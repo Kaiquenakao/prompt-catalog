@@ -220,6 +220,7 @@ def execute_run(
             f"{result.get('input_tokens', 0)} in / {result.get('output_tokens', 0)} out  ·  "
             f"{result.get('latency_ms', 0)}ms"
         )
+        st.session_state["_scroll_to_output"] = True
         st.rerun()
         return
 
@@ -243,6 +244,7 @@ def execute_run(
                     f"{data.get('input_tokens', 0)} in / {data.get('output_tokens', 0)} out  ·  "
                     f"{data.get('latency_ms', 0)}ms"
                 )
+                st.session_state["_scroll_to_output"] = True
                 st.rerun()
                 return
             if data.get("status") == "error":
@@ -270,6 +272,25 @@ if "model_options" not in st.session_state:
         st.session_state.model_options = fetch_models()
 if "deploy_success" not in st.session_state:
     st.session_state.deploy_success = None
+
+# ── pré-preenche campos se vier dos detalhes ──────────────
+edit = st.session_state.pop("playground_edit", None)
+if edit:
+    # só seta se ainda não foi inicializado — evita sobrescrever o que o usuário digitou
+    if "pf_name" not in st.session_state:
+        st.session_state["pf_name"] = edit.get("prompt_name", "")
+    if "pf_prompt" not in st.session_state:
+        st.session_state["pf_prompt"] = edit.get("system_prompt", "")
+    if "pf_description" not in st.session_state:
+        st.session_state["pf_description"] = edit.get("description", "")
+    if "pf_temperature" not in st.session_state:
+        st.session_state["pf_temperature"] = float(edit.get("temperature", 0.7))
+    if "pf_max_tokens" not in st.session_state:
+        st.session_state["pf_max_tokens"] = int(edit.get("max_tokens", 1024))
+    if "_editing_from" not in st.session_state:
+        st.session_state["_editing_from"] = edit.get("from_version", "")
+        st.session_state["_prefill_name"] = edit.get("prompt_name", "")
+    st.session_state.tags = edit.get("tags", [])
 
 
 # ── MODAL: campos obrigatórios ────────────────────────────
@@ -457,6 +478,15 @@ def deploy_modal(
                 )
                 version = result.get("version", next_v)
                 st.session_state.deploy_success = f"{prompt_name} {version}"
+                # limpa estado de edição
+                for k in [
+                    "_editing_from",
+                    "_prefill_name",
+                    "pf_name",
+                    "pf_prompt",
+                    "pf_description",
+                ]:
+                    st.session_state.pop(k, None)
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro no deploy: {e}")
@@ -662,6 +692,11 @@ st.markdown(
 # ── BANNER DE SUCESSO ─────────────────────────────────────
 if st.session_state.deploy_success:
     msg = st.session_state.deploy_success
+    # scroll para o topo automaticamente
+    st.markdown(
+        "<script>window.parent.document.querySelector('section.main').scrollTo(0,0);</script>",
+        unsafe_allow_html=True,
+    )
     c1, c2 = st.columns([10, 1])
     with c1:
         st.markdown(
@@ -673,10 +708,9 @@ if st.session_state.deploy_success:
             <span style="font-family:'JetBrains Mono',monospace; font-size:12px;
                 color:#a78bfa; background:rgba(124,58,237,0.12); padding:2px 10px;
                 border-radius:999px; border:1px solid rgba(124,58,237,0.3);">{msg}</span>
-            <span style="font-size:12px; color:#374151; font-family:'Space Grotesk',sans-serif;">
-                · <a href="/catalog" style="color:#a78bfa; text-decoration:none;">ver no catálogo</a>
-                <span style="font-size:10px; color:#374151;"> (em breve)</span>
-            </span>
+            <a href="/" target="_self" style="font-size:12px; color:#a78bfa;
+                font-family:'Space Grotesk',sans-serif; text-decoration:none;
+                border-bottom:1px solid rgba(167,139,250,0.3);">ver no catálogo →</a>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -684,6 +718,33 @@ if st.session_state.deploy_success:
         if st.button("✕", type="secondary", use_container_width=True):
             st.session_state.deploy_success = None
             st.rerun()
+
+# ── BANNER DE EDIÇÃO ──────────────────────────────────────
+if st.session_state.get("_editing_from"):
+    pid = st.session_state.get("_prefill_name", "")
+    fromv = st.session_state["_editing_from"]
+    st.markdown(
+        f"""<div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3);
+        border-radius:10px; padding:14px 20px; margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+            <span style="font-size:15px;">✏️</span>
+            <span style="font-size:13px; color:#f59e0b; font-family:'Space Grotesk',sans-serif; font-weight:600;">
+                Editando prompt existente</span>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <span style="font-size:12px; color:#94a3b8; font-family:'Space Grotesk',sans-serif;">
+                Ao fazer Deploy, será criada</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#f59e0b;
+                background:rgba(245,158,11,0.12); padding:2px 10px; border-radius:4px;
+                border:1px solid rgba(245,158,11,0.3);">{pid}</span>
+            <span style="font-size:12px; color:#94a3b8; font-family:'Space Grotesk',sans-serif;">
+                com o mesmo nome —</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#a78bfa;">
+                versão anterior: {fromv}</span>
+        </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
 
 # ── COLUNAS ───────────────────────────────────────────────
 col_left, col_right = st.columns([2, 2], gap="large")
@@ -699,6 +760,7 @@ with col_left:
 
     prompt_name = st.text_input(
         "Nome",
+        key="pf_name",
         placeholder="ex: suporte_reclamacao",
         help=(
             "Identificador único deste prompt no catálogo.\n\n"
@@ -712,6 +774,7 @@ with col_left:
     )
     system_prompt = st.text_area(
         "System prompt",
+        key="pf_prompt",
         placeholder=(
             "Você é um especialista em atendimento ao cliente da empresa Acme.\n"
             "Seu tom é empático, direto e sempre orientado à resolução.\n\n"
@@ -732,6 +795,7 @@ with col_left:
     )
     description = st.text_area(
         "Quando usar este prompt",
+        key="pf_description",
         placeholder=(
             "Descreva o caso de uso específico, o público-alvo e o que se espera como saída.\n"
             "Ex: Usado pelo time de suporte para responder reclamações de entrega. "
@@ -864,13 +928,25 @@ with col_right:
 
     st.markdown(
         """<p style="font-family:'Space Grotesk',sans-serif; font-size:11px; color:#7c3aed;
-        letter-spacing:0.15em; text-transform:uppercase; margin:0 0 12px; font-weight:600;">
+        letter-spacing:0.15em; text-transform:uppercase; margin:0 0 12px; font-weight:600;"
+        id="output-section">
         Output</p>""",
         unsafe_allow_html=True,
     )
 
     if st.session_state.output:
-        # forma mais elegante: divide por parágrafos, limpa cada um, rejunta
+        # scroll automático para o output após run
+        if st.session_state.pop("_scroll_to_output", False):
+            st.markdown(
+                """<script>
+                setTimeout(function(){
+                    var main = window.parent.document.querySelector('.main .block-container');
+                    if(main){ main.scrollTop = main.scrollHeight; }
+                    else { window.parent.scrollTo(0, window.parent.document.body.scrollHeight); }
+                }, 400);
+                </script>""",
+                unsafe_allow_html=True,
+            )
         clean_output = "\n\n".join(
             p.strip() for p in st.session_state.output.split("\n\n") if p.strip()
         )
@@ -900,6 +976,10 @@ with col_right:
     deploy_clicked = st.button("Deploy", type="secondary", use_container_width=True)
 
 # ── LÓGICA ────────────────────────────────────────────────
+# lê valores dos campos com key
+prompt_name = st.session_state.get("pf_name", "")
+system_prompt = st.session_state.get("pf_prompt", "")
+description = st.session_state.get("pf_description", "")
 variables = extract_variables(system_prompt)
 
 if history_clicked:

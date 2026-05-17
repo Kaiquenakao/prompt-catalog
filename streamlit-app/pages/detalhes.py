@@ -144,7 +144,7 @@ def extract_variables(prompt: str) -> list:
     return list(dict.fromkeys(re.findall(r"\{\{(\w+)\}\}", prompt)))
 
 
-# ── render history (definido antes de ser usado) ──────────
+# ── render history ────────────────────────────────────────
 def render_history(executions: list, current_version: str):
     if not executions:
         st.info("Nenhuma execução encontrada.")
@@ -188,47 +188,35 @@ def render_history(executions: list, current_version: str):
             sp = ex.get("system_prompt", "")
             if sp:
                 st.markdown(
-                    '<p style="font-size:9px; color:#475569; text-transform:uppercase; '
-                    "letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 4px;\">"
-                    "System prompt</p>",
+                    "<p style=\"font-size:9px; color:#475569; text-transform:uppercase; letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 4px;\">System prompt</p>",
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f"<p style=\"font-family:'JetBrains Mono',monospace; font-size:11px; "
-                    f'color:#94a3b8; line-height:1.6; white-space:pre-wrap; margin:0 0 14px;">'
-                    f"{sp[:400]}{'...' if len(sp) > 400 else ''}</p>",
+                    f"<p style=\"font-family:'JetBrains Mono',monospace; font-size:11px; color:#94a3b8; line-height:1.6; white-space:pre-wrap; margin:0 0 14px;\">{sp[:400]}{'...' if len(sp) > 400 else ''}</p>",
                     unsafe_allow_html=True,
                 )
 
-            # variáveis — extraídas do system prompt original
             vars_used = ex.get("variables_used", {})
             if vars_used:
                 st.markdown(
-                    '<p style="font-size:9px; color:#475569; text-transform:uppercase; '
-                    "letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 6px;\">"
-                    "Variáveis</p>",
+                    "<p style=\"font-size:9px; color:#475569; text-transform:uppercase; letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 6px;\">Variáveis</p>",
                     unsafe_allow_html=True,
                 )
                 for k, val in vars_used.items():
                     st.markdown(
-                        f"<p style=\"font-family:'JetBrains Mono',monospace; font-size:11px; "
-                        f'color:#94a3b8; margin:0 0 4px;">'
-                        f'<span style="color:#475569;">{k}:</span> {val}</p>',
+                        f'<p style="font-family:\'JetBrains Mono\',monospace; font-size:11px; color:#94a3b8; margin:0 0 4px;"><span style="color:#475569;">{k}:</span> {val}</p>',
                         unsafe_allow_html=True,
                     )
                 st.markdown("<div style='height:10px'/>", unsafe_allow_html=True)
             else:
                 st.markdown(
-                    "<p style=\"font-size:9px; color:#2a3142; font-family:'Space Grotesk',sans-serif; "
-                    'margin:0 0 14px;">Sem variáveis registradas nesta execução.</p>',
+                    "<p style=\"font-size:9px; color:#2a3142; font-family:'Space Grotesk',sans-serif; margin:0 0 14px;\">Sem variáveis registradas.</p>",
                     unsafe_allow_html=True,
                 )
 
             output = ex.get("output", "")
             st.markdown(
-                '<p style="font-size:10px; color:#7c3aed; text-transform:uppercase; '
-                "letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; "
-                'margin:0 0 8px; font-weight:600;">Output</p>',
+                "<p style=\"font-size:10px; color:#7c3aed; text-transform:uppercase; letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 8px; font-weight:600;\">Output</p>",
                 unsafe_allow_html=True,
             )
             if output:
@@ -246,7 +234,7 @@ def render_history(executions: list, current_version: str):
         )
 
 
-# ── execute run com polling ───────────────────────────────
+# ── execute run ───────────────────────────────────────────
 def execute_run(
     system_prompt,
     prompt_name,
@@ -453,9 +441,24 @@ with col_main:
                     st.rerun()
         with h3:
             if st.button(
-                "Editar no Playground", type="secondary", use_container_width=True
+                "Editar",
+                type="secondary",
+                use_container_width=True,
+                help="Abre o Playground com este prompt pré-preenchido para edição. O deploy gerará uma nova versão.",
             ):
-                st.info("Em breve.")
+                # passa todos os dados para o playground via session_state
+                st.session_state["playground_edit"] = {
+                    "prompt_name": prompt_id,
+                    "system_prompt": sys_prompt,
+                    "description": description,
+                    "tags": tags,
+                    "model_id": model_id,
+                    "model_name": model_name,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "from_version": sel_label,
+                }
+                st.switch_page("pages/prompt_playground.py")
 
         # métricas compactas
         m1, m2, m3, m4, m5 = st.columns(5)
@@ -480,23 +483,18 @@ with col_main:
         st.divider()
 
         st.markdown(
-            """<p style="font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed;
-            letter-spacing:0.15em; text-transform:uppercase; margin:0 0 6px; font-weight:600;">
-            Descrição</p>""",
+            "<p style=\"font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed; letter-spacing:0.15em; text-transform:uppercase; margin:0 0 6px; font-weight:600;\">Descrição</p>",
             unsafe_allow_html=True,
         )
         st.markdown(
-            f"<p style=\"font-family:'Space Grotesk',sans-serif; font-size:13px; "
-            f'color:#64748b; line-height:1.7; margin:0;">{description}</p>',
+            f"<p style=\"font-family:'Space Grotesk',sans-serif; font-size:13px; color:#64748b; line-height:1.7; margin:0;\">{description}</p>",
             unsafe_allow_html=True,
         )
 
         st.divider()
 
         st.markdown(
-            """<p style="font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed;
-            letter-spacing:0.15em; text-transform:uppercase; margin:0 0 6px; font-weight:600;">
-            System prompt</p>""",
+            "<p style=\"font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed; letter-spacing:0.15em; text-transform:uppercase; margin:0 0 6px; font-weight:600;\">System prompt</p>",
             unsafe_allow_html=True,
         )
         st.text_area(
@@ -510,9 +508,7 @@ with col_main:
         st.divider()
 
         st.markdown(
-            """<p style="font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed;
-            letter-spacing:0.15em; text-transform:uppercase; margin:0 0 8px; font-weight:600;">
-            Tags</p>""",
+            "<p style=\"font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed; letter-spacing:0.15em; text-transform:uppercase; margin:0 0 8px; font-weight:600;\">Tags</p>",
             unsafe_allow_html=True,
         )
         if tags:
@@ -537,21 +533,15 @@ with col_main:
             font-family:'JetBrains Mono',monospace; font-size:12px; color:#a78bfa;
             display:flex; gap:16px;">
             <span>{prompt_id} {sel_label}</span>
-            <span style="color:#2a3142;">·</span>
-            <span>{model_name}</span>
-            <span style="color:#2a3142;">·</span>
-            <span>temp {temperature:.2f}</span>
-            <span style="color:#2a3142;">·</span>
-            <span>{max_tokens} tokens</span>
+            <span style="color:#2a3142;">·</span><span>{model_name}</span>
+            <span style="color:#2a3142;">·</span><span>temp {temperature:.2f}</span>
+            <span style="color:#2a3142;">·</span><span>{max_tokens} tokens</span>
             </div>""",
             unsafe_allow_html=True,
         )
 
-        # system prompt visível — somente leitura
         st.markdown(
-            """<p style="font-family:'Space Grotesk',sans-serif; font-size:10px; color:#475569;
-            letter-spacing:0.15em; text-transform:uppercase; margin:0 0 6px; font-weight:600;">
-            System prompt</p>""",
+            "<p style=\"font-family:'Space Grotesk',sans-serif; font-size:10px; color:#475569; letter-spacing:0.15em; text-transform:uppercase; margin:0 0 6px; font-weight:600;\">System prompt</p>",
             unsafe_allow_html=True,
         )
         st.text_area(
@@ -561,7 +551,6 @@ with col_main:
             disabled=True,
             label_visibility="collapsed",
         )
-
         st.markdown("<div style='height:12px'/>", unsafe_allow_html=True)
 
         variables = extract_variables(sys_prompt)
@@ -569,9 +558,7 @@ with col_main:
 
         if variables:
             st.markdown(
-                """<p style="font-family:'Space Grotesk',sans-serif; font-size:10px; color:#f59e0b;
-                letter-spacing:0.15em; text-transform:uppercase; margin:0 0 8px; font-weight:600;">
-                Variáveis</p>""",
+                "<p style=\"font-family:'Space Grotesk',sans-serif; font-size:10px; color:#f59e0b; letter-spacing:0.15em; text-transform:uppercase; margin:0 0 8px; font-weight:600;\">Variáveis</p>",
                 unsafe_allow_html=True,
             )
             vcols = st.columns(min(len(variables), 3))
@@ -585,13 +572,10 @@ with col_main:
                     )
 
         run_clicked = st.button("Run", type="primary")
-
         st.divider()
 
         st.markdown(
-            """<p style="font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed;
-            letter-spacing:0.15em; text-transform:uppercase; margin:0 0 10px; font-weight:600;">
-            Output</p>""",
+            "<p style=\"font-family:'Space Grotesk',sans-serif; font-size:10px; color:#7c3aed; letter-spacing:0.15em; text-transform:uppercase; margin:0 0 10px; font-weight:600;\">Output</p>",
             unsafe_allow_html=True,
         )
 
@@ -602,19 +586,14 @@ with col_main:
                 if p.strip()
             )
             st.markdown(
-                f'<div style="font-size:10px; color:#22c55e; letter-spacing:0.1em; '
-                f"text-transform:uppercase; font-family:'Space Grotesk',sans-serif; "
-                f'margin-bottom:6px;">200 OK · {st.session_state.detail_output_meta}</div>',
+                f"<div style=\"font-size:10px; color:#22c55e; letter-spacing:0.1em; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; margin-bottom:6px;\">200 OK · {st.session_state.detail_output_meta}</div>",
                 unsafe_allow_html=True,
             )
             with st.container(border=True):
                 st.markdown(clean)
         else:
             st.markdown(
-                """<div style="border:1px dashed rgba(255,255,255,0.08); border-radius:10px;
-                padding:24px; font-family:'JetBrains Mono',monospace;
-                font-size:13px; color:#2a3142;">
-                Nenhuma execução ainda. Clique em Run para testar.</div>""",
+                "<div style=\"border:1px dashed rgba(255,255,255,0.08); border-radius:10px; padding:24px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#2a3142;\">Nenhuma execução ainda. Clique em Run para testar.</div>",
                 unsafe_allow_html=True,
             )
 
@@ -624,7 +603,6 @@ with col_main:
             ):
                 st.warning("Preencha todas as variáveis antes de executar.")
             else:
-                # passa prompt original + variáveis separados — Lambda faz a substituição
                 execute_run(
                     sys_prompt,
                     prompt_id,
@@ -640,7 +618,7 @@ with col_main:
     # ── HISTÓRICO ─────────────────────────────────────────
     with tab_hist:
         run_type_filter = st.radio(
-            "Tipo de execução",
+            "Tipo",
             options=["playground", "production"],
             format_func=lambda x: (
                 "Playground (testes)" if x == "playground" else "Produção (API)"
@@ -648,6 +626,5 @@ with col_main:
             horizontal=True,
             label_visibility="collapsed",
         )
-
         executions = fetch_history(prompt_id, run_type_filter)
         render_history(executions, sel_label)
