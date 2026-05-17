@@ -333,10 +333,7 @@ streamlit run app.py
 Acesse em `http://localhost:8501`
 
 ---
-<<<<<<< HEAD
 
-=======
->>>>>>> 1be75ac59521f401a2884ec9f3f5ebe1ba52edce
 ## Variáveis nos prompts
 
 Use `{{nome_da_variavel}}` no system prompt para criar campos dinâmicos:
@@ -386,10 +383,5 @@ A Lambda busca automaticamente a versão ativa do prompt e substitui as variáve
 | `AccessDeniedException` DynamoDB | Política IAM sem a action necessária (ex: `Scan`) | Adicione a action em `iam.tf` e rode `terraform apply` |
 | `ValidationException` Bedrock | Modelo requer inference profile | Lambda já adiciona prefixo `us.` automaticamente |
 | Histórico não aparece | GSI criado após os registros | Registros antigos não são indexados retroativamente — execute novos testes |
-<<<<<<< HEAD
-| `Module not installed` no Terraform | Novo módulo adicionado | Rode `terraform init` antes do `apply` |
-=======
 | `Module not installed` no Terraform | Novo módulo adicionado | Rode `terraform init` antes do `apply` |
 
----
->>>>>>> 1be75ac59521f401a2884ec9f3f5ebe1ba52edce
