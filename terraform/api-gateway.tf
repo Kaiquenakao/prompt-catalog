@@ -73,6 +73,23 @@ resource "aws_lambda_permission" "get_models" {
   source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
 }
 
+resource "aws_api_gateway_method" "get_prompts" {
+  rest_api_id      = aws_api_gateway_rest_api.this.id
+  resource_id      = aws_api_gateway_resource.prompts.id
+  http_method      = "GET"
+  authorization    = "NONE"
+  api_key_required = true
+}
+
+resource "aws_api_gateway_integration" "get_prompts" {
+  rest_api_id             = aws_api_gateway_rest_api.this.id
+  resource_id             = aws_api_gateway_resource.prompts.id
+  http_method             = aws_api_gateway_method.get_prompts.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = module.get-prompts.invoke_arn
+}
+
 # ── POST /prompts — salva novo prompt/versão ──────────────
 resource "aws_api_gateway_resource" "prompts" {
   rest_api_id = aws_api_gateway_rest_api.this.id
@@ -118,7 +135,15 @@ resource "aws_api_gateway_integration" "get_prompt" {
   http_method             = aws_api_gateway_method.get_prompt.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = module.save-prompt.invoke_arn
+  uri                     = module.get-prompts.invoke_arn
+}
+
+resource "aws_lambda_permission" "get_prompts" {
+  statement_id  = "AllowAPIGatewayGetPrompts"
+  action        = "lambda:InvokeFunction"
+  function_name = module.get-prompts.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
 }
 
 resource "aws_lambda_permission" "save_prompt" {
@@ -225,6 +250,7 @@ resource "aws_api_gateway_deployment" "this" {
 
   depends_on = [
     aws_api_gateway_integration.get_models,
+    aws_api_gateway_integration.get_prompts,
     aws_api_gateway_integration.post_prompts,
     aws_api_gateway_integration.get_prompt,
     aws_api_gateway_integration.post_run,

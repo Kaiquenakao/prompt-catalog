@@ -64,6 +64,7 @@ resource "aws_iam_policy" "dynamodb_prompts" {
           "dynamodb:GetItem",
           "dynamodb:Query",
           "dynamodb:UpdateItem",
+          "dynamodb:Scan",
         ]
         Resource = [
           aws_dynamodb_table.prompts.arn,
