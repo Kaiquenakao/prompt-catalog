@@ -98,6 +98,12 @@ Escrever prompt       →   Testar no Playground   →   Deploy para produção
 
 ---
 
+## Arquitetura de Componentes AWS
+
+![Arquitetura AWS — Prompt Catalog](doc/img/Prompt%20Catalog.png)
+
+---
+
 ## Estrutura de Arquivos
 
 ```
@@ -106,7 +112,7 @@ prompt-catalog/
 ├── streamlit-app/
 │   ├── .streamlit/
 │   │   ├── config.toml          # tema escuro
-│   │   └── secrets.toml         # não versionar
+│   │   └── secrets.toml         # ⚠️ não versionar
 │   ├── pages/
 │   │   ├── 2_prompt_playground.py
 │   │   ├── 3_detalhes.py
@@ -328,38 +334,6 @@ Acesse em `http://localhost:8501`
 
 ---
 
-## Deploy de atualizações
-
-### Atualizar uma Lambda
-
-```bash
-cd lambdas/run-prompt
-$env:GOOS="linux"; $env:GOARCH="amd64"  # PowerShell
-go build -o bootstrap main.go
-
-cd ../../terraform
-terraform apply
-```
-
-### Forçar redeployment do API Gateway
-
-Necessário quando adiciona novas rotas:
-
-```bash
-cd terraform
-terraform apply -replace="aws_api_gateway_deployment.this"
-```
-
-### Adicionar nova Lambda
-
-1. Crie a pasta em `lambdas/nova-lambda/` com `main.go` e `go.mod`
-2. Adicione o módulo em `terraform/lambdas.tf`
-3. Adicione a rota em `terraform/api-gateway.tf`
-4. Adicione a política IAM necessária em `terraform/iam.tf`
-5. Rode `terraform init && terraform apply`
-
----
-
 ## Variáveis nos prompts
 
 Use `{{nome_da_variavel}}` no system prompt para criar campos dinâmicos:
@@ -400,24 +374,6 @@ A Lambda busca automaticamente a versão ativa do prompt e substitui as variáve
 
 ---
 
-## .gitignore
-
-```
-# secrets
-streamlit-app/.streamlit/secrets.toml
-
-# binários Go
-lambdas/**/bootstrap
-lambdas/**/function.zip
-
-# Terraform state
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-terraform/.terraform.lock.hcl
-```
-
----
 
 ## Troubleshooting
 
@@ -428,5 +384,3 @@ terraform/.terraform.lock.hcl
 | `ValidationException` Bedrock | Modelo requer inference profile | Lambda já adiciona prefixo `us.` automaticamente |
 | Histórico não aparece | GSI criado após os registros | Registros antigos não são indexados retroativamente — execute novos testes |
 | `Module not installed` no Terraform | Novo módulo adicionado | Rode `terraform init` antes do `apply` |
-
----
