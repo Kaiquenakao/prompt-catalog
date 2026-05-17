@@ -16,6 +16,75 @@ O **Prompt Catalog** resolve isso tratando prompts como artefatos de software:
 - **Testáveis** — qualquer versão pode ser testada antes de ir para produção
 - **Auditáveis** — o histórico separa execuções de playground (testes) de produção (API real)
 
+### O problema que resolve
+
+Sem uma ferramenta como essa, o ciclo de vida de um prompt é caótico:
+
+```
+Alguém escreve um prompt no código
+        ↓
+Abre PR, passa por review, faz merge
+        ↓
+Deploy da aplicação inteira para mudar 3 linhas de texto
+        ↓
+Algo dá errado em produção
+        ↓
+Ninguém sabe qual versão estava ativa, quem alterou, ou quando
+```
+
+Com o Prompt Catalog:
+
+```
+Escreve e testa no Playground (sem afetar produção)
+        ↓
+Faz Deploy — gera v1, v2, v3 com rastreabilidade completa
+        ↓
+Sistema externo chama POST /run com o nome do prompt
+        ↓
+Catálogo resolve a versão ativa, injeta variáveis, chama o modelo
+        ↓
+Qualquer problema → rollback em 1 clique ativando a versão anterior
+```
+
+### Governança e Qualidade
+
+O Prompt Catalog implementa práticas de **AI Governance** que estão se tornando requisito em empresas que operam LLMs em produção:
+
+**Rastreabilidade completa** — toda execução registra qual prompt foi usado, qual versão, quais variáveis foram passadas, qual modelo respondeu e qual foi o output. Isso é essencial para auditorias, investigações de incidentes e demonstração de conformidade.
+
+**Separação entre teste e produção** — execuções de playground são marcadas como `playground`, chamadas reais como `production`. O histórico nunca mistura os dois contextos, evitando que testes contaminem métricas de produção.
+
+**Controle de ativação** — uma versão só entra em produção quando explicitamente ativada. É possível ter múltiplas versões ativas simultaneamente para testes A/B controlados, ou desativar uma versão problemática sem afetar as demais.
+
+**Desacoplamento entre prompt e código** — sistemas externos chamam o prompt pelo nome (`suporte_reclamacao`), não pela versão. Quando uma nova versão é ativada, todos os sistemas passam a usá-la automaticamente, sem nenhuma mudança de código.
+
+**Controle de custo** — cada execução registra tokens de entrada e saída, modelo utilizado e latência. Isso permite calcular custo por prompt, identificar prompts ineficientes e tomar decisões baseadas em dados sobre qual modelo usar em cada caso.
+
+### O que é possível fazer
+
+| Capacidade | Descrição |
+|------------|-----------|
+| **Criar e versionar** | Escreva prompts com variáveis dinâmicas `{{nome}}`, faça deploy e o sistema cria v1, v2, v3 automaticamente |
+| **Testar antes de ativar** | Qualquer versão pode ser testada com dados reais no playground antes de entrar em produção |
+| **A/B Testing** | Mantenha múltiplas versões ativas simultaneamente e compare resultados no histórico |
+| **Rollback imediato** | Desative uma versão problemática e reative a anterior com um toggle — sem deploys de código |
+| **Integração via API** | Sistemas externos chamam `POST /run` com o nome do prompt e variáveis — o catálogo resolve o resto |
+| **Auditoria de execuções** | Veja exatamente o que foi enviado ao modelo, quais variáveis foram usadas e qual foi o output |
+| **Monitoramento por tipo** | Separe execuções de teste (playground) das execuções reais (produção) no histórico |
+| **Documentação viva** | Cada prompt tem descrição de quando usar, tags de categorização e histórico de versões |
+
+### Por que isso importa para cada time
+
+**Time de Produto** — para de depender de engenharia para ajustar o tom, o contexto ou as instruções de um prompt. Faz o deploy diretamente, com segurança, sabendo que pode reverter se necessário.
+
+**Time de Dados/IA** — compara modelos, temperaturas e variações de prompt com dados reais de produção. Identifica qual versão gera melhores resultados antes de ativar.
+
+**Time de Engenharia** — integra via API uma única vez. Quando o prompt evolui, nenhum código muda. Foca em produto, não em gerenciar strings de texto.
+
+**Time de QA** — testa prompts com variáveis reais antes do deploy. Compara o output da nova versão com o da versão atual e só aprova se estiver satisfeito.
+
+**Compliance e Jurídico** — toda execução é rastreável, o que é um prompt estava ativo em determinada data e hora, e quem fez deploy de cada versão.
+
 ### Fluxo principal
 
 ```
@@ -26,55 +95,6 @@ Escrever prompt       →   Testar no Playground   →   Deploy para produção
                                                     POST /run com o nome
                                                     do prompt e variáveis
 ```
-
-### Casos de uso
-
-| Time | Uso |
-|------|-----|
-| Produto | Criar e versionar prompts de atendimento, geração de conteúdo, classificação |
-| Dados/IA | Testar diferentes modelos e temperaturas com o mesmo prompt |
-| Engenharia | Integrar via API sem mudar código quando o prompt muda |
-| QA | Comparar outputs entre versões antes de ativar |
-
----
-
-## Arquitetura
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Streamlit (frontend)                                           │
-│  app.py · playground · detalhes · histórico                     │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ HTTPS + x-api-key
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  API Gateway REST (prod stage)                                  │
-│  Throttling por rota · API Key obrigatória                      │
-└──┬──────────┬──────────┬──────────┬──────────┬─────────────────┘
-   │          │          │          │          │
-   ▼          ▼          ▼          ▼          ▼
-list-models  run-prompt  get-execution  save-prompt  get-prompts
-   │          │    │          │              │             │
-   ▼          ▼    ▼          ▼              ▼             ▼
-Bedrock    Bedrock DynamoDB  DynamoDB     DynamoDB      DynamoDB
-           Runtime  history   history     prompts       prompts
-```
-
-### Por que REST API Gateway e não HTTP API?
-
-REST API Gateway tem suporte nativo a **API Key + Usage Plan + throttling por rota**. Para um catálogo interno onde sistemas externos chamam `/run` em produção, isso é essencial para controle de custos e isolamento de consumidores.
-
-### Por que Go nas Lambdas?
-
-- Cold start < 100ms (vs ~800ms Python com dependências)
-- Binary único, sem gerenciamento de dependências em runtime
-- Tipagem forte evita bugs silenciosos em serialização/deserialização
-
-### Por que DynamoDB?
-
-- Schema flexível — campos novos (`variables_used`, `run_type`) não exigem migration
-- TTL nativo para expirar logs antigos automaticamente
-- GSIs permitem queries eficientes por `session_id` e `prompt_name`
 
 ---
 
