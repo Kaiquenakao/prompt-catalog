@@ -52,18 +52,19 @@ func handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.API
 		return getExecution(ctx, execID)
 	}
 
-	// GET /executions?prompt_name=xxx&run_type=playground — histórico do prompt
+	// GET /executions?prompt_name=xxx&run_type=playground
 	if promptName := req.QueryStringParameters["prompt_name"]; promptName != "" {
-		runType := req.QueryStringParameters["run_type"] // playground | production | "" (todos)
+		runType := req.QueryStringParameters["run_type"]
 		return listByPrompt(ctx, promptName, runType)
 	}
 
-	// GET /executions?session_id=xxx — histórico da sessão (playground)
-	sessionID := req.QueryStringParameters["session_id"]
-	if sessionID == "" {
-		return errorResponse(400, "session_id ou prompt_name é obrigatório"), nil
+	// GET /executions?session_id=xxx
+	if sessionID := req.QueryStringParameters["session_id"]; sessionID != "" {
+		return listExecutions(ctx, sessionID)
 	}
-	return listExecutions(ctx, sessionID)
+
+	// GET /executions — todos (com limit)
+	return listAll(ctx, req.QueryStringParameters)
 }
 
 // getExecution — busca execução por ID (usado no polling)
@@ -87,6 +88,52 @@ func getExecution(ctx context.Context, executionID string) (events.APIGatewayPro
 	}
 
 	body, _ := json.Marshal(record)
+	return successResponse(string(body)), nil
+}
+
+// listAll — scan completo com filtros opcionais por prompt_name e run_type
+func listAll(ctx context.Context, params map[string]string) (events.APIGatewayProxyResponse, error) {
+	input := &dynamodb.ScanInput{
+		TableName: aws.String(historyTable),
+		Limit:     aws.Int32(200),
+	}
+
+	// filtros opcionais
+	filters := []string{}
+	exprValues := map[string]types.AttributeValue{}
+
+	if pn := params["prompt_name"]; pn != "" {
+		filters = append(filters, "contains(prompt_name, :pn)")
+		exprValues[":pn"] = &types.AttributeValueMemberS{Value: pn}
+	}
+	if rt := params["run_type"]; rt != "" {
+		filters = append(filters, "run_type = :rt")
+		exprValues[":rt"] = &types.AttributeValueMemberS{Value: rt}
+	}
+
+	if len(filters) > 0 {
+		expr := filters[0]
+		for i := 1; i < len(filters); i++ {
+			expr += " AND " + filters[i]
+		}
+		input.FilterExpression = aws.String(expr)
+		input.ExpressionAttributeValues = exprValues
+	}
+
+	result, err := dynamoClient.Scan(ctx, input)
+	if err != nil {
+		return errorResponse(500, "erro ao listar execuções: "+err.Error()), nil
+	}
+
+	records := make([]ExecutionRecord, 0)
+	if err := attributevalue.UnmarshalListOfMaps(result.Items, &records); err != nil {
+		return errorResponse(500, "erro ao deserializar: "+err.Error()), nil
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"executions": records,
+		"count":      len(records),
+	})
 	return successResponse(string(body)), nil
 }
 

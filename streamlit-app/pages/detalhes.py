@@ -321,7 +321,9 @@ if "detail_output_meta" not in st.session_state:
     st.session_state.detail_output_meta = None
 
 # ── PROMPT ID ─────────────────────────────────────────────
-prompt_id = st.session_state.get("detail_prompt_id", "")
+prompt_id = st.query_params.get("prompt_id", "") or st.session_state.get(
+    "detail_prompt_id", ""
+)
 
 if not prompt_id:
     st.markdown(
@@ -358,7 +360,7 @@ st.markdown(
     f"""<div style="border-bottom:1px solid rgba(255,255,255,0.07);
     margin:-4rem -4rem 2rem -4rem; padding:14px 3rem; display:flex; align-items:center; gap:10px;
     background:rgba(255,255,255,0.02);">
-    <a href="/catalog" style="font-family:'Space Grotesk',sans-serif; font-size:12px;
+    <a href="/" target="_self" style="font-family:'Space Grotesk',sans-serif; font-size:12px;
         color:#475569; text-decoration:none;">← Catálogo</a>
     <span style="color:#1e2430;">/</span>
     <span style="font-family:'Space Grotesk',sans-serif; font-size:16px;

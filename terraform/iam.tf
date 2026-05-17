@@ -41,6 +41,7 @@ resource "aws_iam_policy" "dynamodb_history" {
           "dynamodb:GetItem",
           "dynamodb:Query",
           "dynamodb:UpdateItem",
+          "dynamodb:Scan",
         ]
         Resource = [
           aws_dynamodb_table.history.arn,

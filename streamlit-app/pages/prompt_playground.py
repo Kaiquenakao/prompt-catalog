@@ -632,15 +632,30 @@ with st.sidebar:
 # ── HEADER ────────────────────────────────────────────────
 st.markdown(
     """<div style="border-bottom:1px solid rgba(255,255,255,0.07);
-    margin:-4rem -4rem 2rem -4rem; padding:16px 3rem; display:flex; align-items:center; gap:12px;
+    margin:-4rem -4rem 2rem -4rem; padding:16px 3rem;
+    display:flex; align-items:center; justify-content:space-between;
     background:rgba(255,255,255,0.02);">
-    <span style="font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:600; color:#f1f5f9;">
-        Prompt Playground</span>
-    <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#7c3aed;
-        background:rgba(124,58,237,0.12); padding:3px 10px; border-radius:20px;
-        border:1px solid rgba(124,58,237,0.3);">beta</span>
-    <span style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#4b5563;">
-        Escreva, teste e faça deploy dos seus prompts</span></div>""",
+    <div style="display:flex; align-items:center; gap:12px;">
+        <span style="font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:600; color:#f1f5f9;">
+            Prompt Playground</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#7c3aed;
+            background:rgba(124,58,237,0.12); padding:3px 10px; border-radius:20px;
+            border:1px solid rgba(124,58,237,0.3);">beta</span>
+        <span style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#4b5563;">
+            Escreva, teste e faça deploy dos seus prompts</span>
+    </div>
+    <div style="display:flex; gap:6px;">
+        <a href="/" target="_self" style="font-family:'Space Grotesk',sans-serif; font-size:12px;
+            color:#64748b; padding:6px 14px; border-radius:8px; text-decoration:none;
+            border:1px solid transparent;">Catálogo</a>
+        <a href="/prompt_playground" target="_self" style="font-family:'Space Grotesk',sans-serif; font-size:12px; font-weight:600;
+            color:#a78bfa; background:rgba(124,58,237,0.15); border:1px solid rgba(124,58,237,0.3);
+            padding:6px 14px; border-radius:8px; text-decoration:none;">Playground</a>
+        <a href="/historico" target="_self" style="font-family:'Space Grotesk',sans-serif; font-size:12px;
+            color:#64748b; padding:6px 14px; border-radius:8px; text-decoration:none;
+            border:1px solid transparent;">Histórico</a>
+    </div>
+    </div>""",
     unsafe_allow_html=True,
 )
 
