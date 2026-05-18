@@ -89,6 +89,12 @@ def model_short(model_id: str) -> str:
     return model_id.split(".")[-1][:30]
 
 
+def is_valid_version(v) -> bool:
+    if not v:
+        return False
+    return str(v).strip() not in ("", "-", "—", "null", "None")
+
+
 # ── HEADER + NAV ──────────────────────────────────────────
 st.markdown(
     """<div style="border-bottom:1px solid rgba(255,255,255,0.07);
@@ -99,7 +105,7 @@ st.markdown(
         <span style="font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:600; color:#f1f5f9;">
             Histórico</span>
         <span style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#4b5563;">
-            — Todas as execuções</span>
+            — Execuções de produção</span>
     </div>
     <div style="display:flex; gap:6px;">
         <a href="/" target="_self" style="font-family:'Space Grotesk',sans-serif; font-size:12px;
@@ -138,7 +144,7 @@ with f2:
     )
     run_type_filter = st.selectbox(
         "tipo",
-        options=["todos", "playground", "production"],
+        options=["production", "todos", "playground"],
         format_func=lambda x: {
             "todos": "Todos",
             "playground": "Playground",
@@ -146,8 +152,9 @@ with f2:
         }[x],
         label_visibility="collapsed",
         help=(
-            "Playground — execuções feitas manualmente no Playground ou na aba Testar dos Detalhes.\n\n"
-            "Produção — execuções feitas por sistemas externos via API (sem session_id)."
+            "Produção (padrão) — execuções feitas por sistemas externos via API.\n\n"
+            "Playground — execuções feitas manualmente durante testes.\n\n"
+            "Todos — exibe tudo."
         ),
     )
 with f3:
@@ -180,6 +187,11 @@ with f5:
     buscar = st.button("Buscar", type="secondary", use_container_width=True)
 
 st.markdown("<div style='height:8px'/>", unsafe_allow_html=True)
+
+# limpa caches antigos com filtro "todos" para forçar o padrão production
+for k in list(st.session_state.keys()):
+    if k.startswith("hist_") and "_todos" in k:
+        del st.session_state[k]
 
 # ── CARREGA ───────────────────────────────────────────────
 cache_key = f"hist_{search_name}_{run_type_filter}"
@@ -216,6 +228,9 @@ def in_range(utc_str: str) -> bool:
 
 executions = [e for e in executions if in_range(e.get("created_at", ""))]
 
+# filtra execuções sem versão válida — cobre "-", "—", None, vazio
+executions = [e for e in executions if is_valid_version(e.get("prompt_version"))]
+
 if not executions:
     st.markdown(
         """<div style="border:1px dashed rgba(255,255,255,0.08); border-radius:12px;
@@ -251,7 +266,6 @@ else:
         date_str = to_brasilia(ex.get("created_at", ""))
         run_type = ex.get("run_type", "—")
 
-        # filtra nomes inválidos: sem espaço e curtos = nome real de prompt
         is_valid_name = raw_name and " " not in raw_name and len(raw_name) <= 60
         prompt_name = raw_name if is_valid_name else "—"
 
@@ -303,6 +317,23 @@ else:
         with st.expander("ver output", expanded=False):
             output = ex.get("output", "")
             vars_used = ex.get("variables_used", {})
+            sp = ex.get("system_prompt", "")
+
+            if sp:
+                st.markdown(
+                    '<p style="font-size:9px; color:#475569; text-transform:uppercase; '
+                    "letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif; margin:0 0 4px;\">"
+                    "System prompt</p>",
+                    unsafe_allow_html=True,
+                )
+                sp_display = (sp[:400] + ("..." if len(sp) > 400 else "")).replace(
+                    "\n", "<br>"
+                )
+                st.markdown(
+                    f"<p style=\"font-family:'JetBrains Mono',monospace; font-size:11px; "
+                    f'color:#94a3b8; line-height:1.6; margin:0 0 14px;">{sp_display}</p>',
+                    unsafe_allow_html=True,
+                )
 
             if vars_used:
                 st.markdown(

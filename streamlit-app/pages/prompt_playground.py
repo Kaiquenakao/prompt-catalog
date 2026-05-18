@@ -276,7 +276,6 @@ if "deploy_success" not in st.session_state:
 # ── pré-preenche campos se vier dos detalhes ──────────────
 edit = st.session_state.pop("playground_edit", None)
 if edit:
-    # só seta se ainda não foi inicializado — evita sobrescrever o que o usuário digitou
     if "pf_name" not in st.session_state:
         st.session_state["pf_name"] = edit.get("prompt_name", "")
     if "pf_prompt" not in st.session_state:
@@ -317,7 +316,13 @@ def validation_modal(missing: list):
 # ── MODAL: variáveis ──────────────────────────────────────
 @st.dialog("Variáveis do prompt")
 def variables_modal(
-    variables, system_prompt, model_id, model_name, temperature, max_tokens
+    variables,
+    system_prompt,
+    model_id,
+    model_name,
+    temperature,
+    max_tokens,
+    prompt_name="",  # ← corrigido: recebe o nome do prompt
 ):
     st.markdown(
         """<p style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#94a3b8; margin:0 0 20px;">
@@ -354,7 +359,7 @@ def variables_modal(
                 final_prompt = final_prompt.replace(f"{{{{{var}}}}}", val)
             execute_run(
                 final_prompt,
-                system_prompt,
+                prompt_name,  # ← corrigido: usa o nome, não o conteúdo do prompt
                 model_id,
                 model_name,
                 temperature,
@@ -374,7 +379,6 @@ def deploy_modal(
     temperature,
     max_tokens,
 ):
-    # verifica versões existentes
     with st.spinner("Verificando versões existentes..."):
         data = check_prompt_versions(prompt_name)
         count = data.get("count", 0)
@@ -403,7 +407,6 @@ def deploy_modal(
             unsafe_allow_html=True,
         )
 
-    # resumo do que será salvo
     st.markdown(
         f"""
     <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
@@ -478,7 +481,6 @@ def deploy_modal(
                 )
                 version = result.get("version", next_v)
                 st.session_state.deploy_success = f"{prompt_name} {version}"
-                # limpa estado de edição
                 for k in [
                     "_editing_from",
                     "_prefill_name",
@@ -521,15 +523,60 @@ def history_modal():
 
     total = len(executions)
 
+    # cabeçalho da tabela
+    st.markdown(
+        """<div style="display:grid; grid-template-columns:28px 1.5fr 1.5fr 1.8fr 1fr 1fr 1fr;
+        gap:8px; padding:0 0 8px; border-bottom:1px solid rgba(255,255,255,0.06); margin-bottom:4px;">
+        """
+        + "".join(
+            [
+                f'<span style="font-size:9px; color:#374151; text-transform:uppercase; '
+                f"letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif;\">{h}</span>"
+                for h in [
+                    "#",
+                    "Prompt",
+                    "Modelo",
+                    "Data (BRT)",
+                    "Tokens",
+                    "Latência",
+                    "Status",
+                ]
+            ]
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
     for idx, ex in enumerate(executions):
-        num = total - idx  # mais recente = número maior
+        num = total - idx
         status = ex.get("status", "-")
-        model_short = ex.get("model_id", "-").split(".")[-1][:22]
+
+        # nome amigável do modelo
+        model_display = ex.get("model_id", "-")
+        for old, new in [
+            ("claude-haiku-4-5", "Claude Haiku 4.5"),
+            ("claude-sonnet-4-5", "Claude Sonnet 4.5"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+            ("claude-opus-4-5", "Claude Opus 4.5"),
+            ("claude-opus-4-6", "Claude Opus 4.6"),
+        ]:
+            if old in model_display:
+                model_display = new
+                break
+        else:
+            model_display = model_display.split(".")[-1][:22]
+
         date_str = to_brasilia(ex.get("created_at", ""))
         in_tok = ex.get("input_tokens", 0)
         out_tok = ex.get("output_tokens", 0)
         latency = ex.get("latency_ms", 0)
-        pname = ex.get("prompt_name") or ex.get("system_prompt", "")[:40]
+
+        # ── nome do prompt: nunca mostra conteúdo do system_prompt ──
+        raw_pname = ex.get("prompt_name", "") or ""
+        if raw_pname and " " not in raw_pname and len(raw_pname) <= 60:
+            pname = raw_pname
+        else:
+            pname = "<sem nome>"
 
         status_badge = (
             f'<span style="background:rgba(34,197,94,0.15); color:#22c55e; '
@@ -543,18 +590,20 @@ def history_modal():
 
         st.markdown(
             f"""
-        <div style="display:grid; grid-template-columns:28px 2fr 2fr 1.5fr 1fr 1fr;
-            align-items:center; gap:8px; padding:6px 0 2px;
+        <div style="display:grid; grid-template-columns:28px 1.5fr 1.5fr 1.8fr 1fr 1fr 1fr;
+            align-items:center; gap:8px; padding:8px 0 4px;
             font-family:'Space Grotesk',sans-serif; font-size:12px; color:#94a3b8;">
             <span style="font-family:'JetBrains Mono',monospace; font-size:11px;
                 color:#4b5563; text-align:right;">#{num}</span>
-            <span style="color:#e2e8f0; font-weight:500; white-space:nowrap;
+            <span style="color:#a78bfa; font-weight:500; white-space:nowrap;
                 overflow:hidden; text-overflow:ellipsis;" title="{pname}">{pname}</span>
             <span style="color:#a78bfa; font-family:'JetBrains Mono',monospace;
-                font-size:11px;">{model_short}</span>
+                font-size:11px;">{model_display}</span>
             <span>{date_str}</span>
             <span style="font-family:'JetBrains Mono',monospace; font-size:11px;">
                 {in_tok}↑ {out_tok}↓</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px;">
+                {latency}ms</span>
             {status_badge}
         </div>
         """,
@@ -576,7 +625,7 @@ def history_modal():
                     <div style="font-size:9px; color:#475569; text-transform:uppercase;
                         letter-spacing:0.1em; font-family:'Space Grotesk',sans-serif;">Modelo</div>
                     <div style="font-size:11px; color:#a78bfa; font-family:'JetBrains Mono',monospace;
-                        margin-top:4px;">{model_short}</div>
+                        margin-top:4px;">{model_display}</div>
                 </div>
                 <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
                     border-radius:8px; padding:8px 14px; min-width:90px;">
@@ -670,7 +719,6 @@ st.markdown(
             Prompt Playground</span>
         <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#7c3aed;
             background:rgba(124,58,237,0.12); padding:3px 10px; border-radius:20px;
-            border:1px solid rgba(124,58,237,0.3);">beta</span>
         <span style="font-family:'Space Grotesk',sans-serif; font-size:13px; color:#4b5563;">
             Escreva, teste e faça deploy dos seus prompts</span>
     </div>
@@ -692,7 +740,6 @@ st.markdown(
 # ── BANNER DE SUCESSO ─────────────────────────────────────
 if st.session_state.deploy_success:
     msg = st.session_state.deploy_success
-    # scroll para o topo automaticamente
     st.markdown(
         "<script>window.parent.document.querySelector('section.main').scrollTo(0,0);</script>",
         unsafe_allow_html=True,
@@ -935,7 +982,6 @@ with col_right:
     )
 
     if st.session_state.output:
-        # scroll automático para o output após run
         if st.session_state.pop("_scroll_to_output", False):
             st.markdown(
                 """<script>
@@ -976,7 +1022,6 @@ with col_right:
     deploy_clicked = st.button("Deploy", type="secondary", use_container_width=True)
 
 # ── LÓGICA ────────────────────────────────────────────────
-# lê valores dos campos com key
 prompt_name = st.session_state.get("pf_name", "")
 system_prompt = st.session_state.get("pf_prompt", "")
 description = st.session_state.get("pf_description", "")
@@ -1018,7 +1063,13 @@ if run_clicked:
         validation_modal(missing)
     elif variables:
         variables_modal(
-            variables, system_prompt, model_id, model_name, temperature, max_tokens
+            variables,
+            system_prompt,
+            model_id,
+            model_name,
+            temperature,
+            max_tokens,
+            prompt_name=prompt_name,  # ← corrigido: passa o nome corretamente
         )
     else:
         execute_run(
